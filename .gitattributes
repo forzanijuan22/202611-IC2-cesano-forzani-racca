@@ -1,0 +1,7 @@
+# Normaliza finales de línea para que el repo se vea igual en Windows y Linux
+* text=auto eol=lf
+*.ps1 text eol=crlf
+*.pdf binary
+*.png binary
+*.jpg binary
+*.svg text
