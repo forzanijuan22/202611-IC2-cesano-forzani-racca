@@ -1,0 +1,32 @@
+# ─── Secretos y configuración local ────────────────────────────────────────
+.env
+*.env
+!.env.example
+firmware/**/secrets.h
+
+# ─── Base de datos local (se genera sola al iniciar el backend) ─────────────
+*.db
+*.sqlite
+*.sqlite3
+data/
+
+# ─── Python ────────────────────────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+env/
+
+# ─── PlatformIO / Arduino ──────────────────────────────────────────────────
+.pio/
+.vscode/
+firmware/**/build/
+*.bin
+*.elf
+
+# ─── Sistema operativo / editores ──────────────────────────────────────────
+.DS_Store
+Thumbs.db
+desktop.ini
+*.swp
+.idea/

@@ -1,0 +1,55 @@
+# ============================================================================
+#  IoT Campus — Docker Compose
+#  Levanta broker MQTT (Mosquitto) + backend FastAPI (que también sirve el
+#  dashboard). El simulador del ESP32 es opcional (perfil "sim").
+#
+#  Uso:
+#    docker compose up -d --build                 ← broker + backend + dashboard
+#    docker compose --profile sim up -d --build   ← lo mismo + simulador ESP32
+#    docker compose logs -f                       ← ver logs
+#    docker compose down                          ← detener
+# ============================================================================
+
+services:
+  mosquitto:
+    image: eclipse-mosquitto:2.0.18
+    container_name: iot-mosquitto
+    restart: unless-stopped
+    ports:
+      - "1883:1883"   # MQTT TCP (ESP32 + backend + simulador)
+      - "9001:9001"   # MQTT WebSocket (dashboard web)
+    volumes:
+      - ./mosquitto.conf:/mosquitto/config/mosquitto.conf:ro
+
+  backend:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    container_name: iot-backend
+    restart: unless-stopped
+    depends_on:
+      - mosquitto
+    environment:
+      MQTT_BROKER: mosquitto
+      MQTT_PORT: "1883"
+      MQTT_TOPIC_BASE: campus/tanque1
+      API_HOST: 0.0.0.0
+      API_PORT: "8000"
+      DB_PATH: /data/iot_campus.db
+    ports:
+      - "8000:8000"   # API REST + dashboard (http://localhost:8000)
+    volumes:
+      - backend_data:/data
+
+  simulador:
+    profiles: ["sim"]
+    build:
+      context: ./simulator
+    container_name: iot-simulador
+    restart: unless-stopped
+    depends_on:
+      - mosquitto
+    command: ["python", "-u", "simulador_esp32.py", "--broker", "mosquitto", "--falla-cada", "60"]
+
+volumes:
+  backend_data:
