@@ -1,0 +1,2268 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="description" content="Dashboard SCADA — Telemetría y control de nivel de agua en tiempo real" />
+  <title>SCADA — Tanque 1 · IoT Campus</title>
+  <link rel="icon" type="image/svg+xml" href="favicon.svg" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet" />
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns@3.0.0/dist/chartjs-adapter-date-fns.bundle.min.js"></script>
+  <script src="paho-mqtt.min.js"></script>
+  <style>
+    /* ================================================================
+       RESET & BASE
+       ================================================================ */
+    *, *::before, *::after { margin:0; padding:0; box-sizing:border-box; }
+
+    :root {
+      --font-sans: 'IBM Plex Sans', system-ui, -apple-system, sans-serif;
+      --font-mono: 'IBM Plex Mono', 'Consolas', monospace;
+
+      --hue: 215;
+      --bg-0:  hsl(var(--hue) 28% 6%);
+      --bg-1:  hsl(var(--hue) 24% 9%);
+      --bg-2:  hsl(var(--hue) 22% 12%);
+      --bg-3:  hsl(var(--hue) 20% 16%);
+      --bg-4:  hsl(var(--hue) 18% 20%);
+
+      --t1: hsl(var(--hue) 20% 92%);
+      --t2: hsl(var(--hue) 14% 64%);
+      --t3: hsl(var(--hue) 12% 42%);
+
+      --blue:    hsl(210 100% 62%);
+      --blue-d:  hsl(210 80% 20%);
+      --cyan:    hsl(185 72% 52%);
+      --cyan-d:  hsl(185 50% 16%);
+      --green:   hsl(152 60% 48%);
+      --green-d: hsl(152 40% 14%);
+      --amber:   hsl(38 92% 56%);
+      --amber-d: hsl(38 50% 14%);
+      --red:     hsl(0 72% 56%);
+      --red-d:   hsl(0 50% 14%);
+
+      --border: hsl(var(--hue) 16% 18%);
+      --r: 8px;
+      --r2: 12px;
+      --r3: 16px;
+    }
+
+    html { font-size: 14px; }
+
+    body {
+      font-family: var(--font-sans);
+      background: var(--bg-0);
+      color: var(--t1);
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      overflow-y: auto;
+      overflow-x: hidden;
+    }
+
+    ::-webkit-scrollbar { width: 6px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb { background: var(--bg-4); border-radius: 3px; }
+    ::-webkit-scrollbar-thumb:hover { background: var(--t3); }
+
+    /* ================================================================
+       SIDEBAR
+       ================================================================ */
+    .sidebar {
+      width: 56px;
+      height: 100vh;
+      background: var(--bg-1);
+      border-right: 1px solid var(--border);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      padding: 12px 0;
+      flex-shrink: 0;
+      z-index: 50;
+      position: fixed;
+      left: 0;
+      top: 0;
+    }
+
+    .sidebar-logo {
+      width: 36px; height: 36px;
+      border-radius: var(--r);
+      background: linear-gradient(135deg, var(--blue), var(--cyan));
+      display: grid; place-items: center;
+      margin-bottom: 24px;
+      position: relative;
+    }
+
+    .sidebar-logo svg { width: 20px; height: 20px; fill: #fff; }
+
+    .sidebar-nav { display: flex; flex-direction: column; gap: 4px; flex: 1; }
+
+    .sidebar-btn {
+      width: 40px; height: 40px;
+      border: none; border-radius: var(--r);
+      background: transparent;
+      color: var(--t3);
+      cursor: pointer;
+      display: grid; place-items: center;
+      transition: all 180ms;
+      position: relative;
+    }
+
+    .sidebar-btn:hover { background: var(--bg-3); color: var(--t2); }
+    .sidebar-btn.active { background: var(--bg-3); color: var(--blue); }
+    .sidebar-btn.active::before {
+      content: '';
+      position: absolute; left: -8px; top: 50%; transform: translateY(-50%);
+      width: 3px; height: 20px; border-radius: 0 3px 3px 0;
+      background: var(--blue);
+    }
+
+    .sidebar-btn svg { width: 20px; height: 20px; fill: currentColor; }
+
+    .sidebar-bottom { margin-top: auto; display: flex; flex-direction: column; gap: 4px; }
+
+    /* ================================================================
+       SHELL (everything right of sidebar)
+       ================================================================ */
+    .shell {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      margin-left: 56px;
+      min-height: 100vh;
+    }
+
+    /* ─── TOP BAR ─────────────────────────────────────────────────── */
+    .topbar {
+      height: 48px;
+      background: var(--bg-1);
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      align-items: center;
+      padding: 0 20px;
+      gap: 16px;
+      flex-shrink: 0;
+    }
+
+    .topbar-breadcrumb {
+      font-size: 12px; color: var(--t3); display: flex; align-items: center; gap: 6px;
+    }
+
+    .topbar-breadcrumb span { color: var(--t2); font-weight: 600; }
+
+    .topbar-right {
+      margin-left: auto;
+      display: flex; align-items: center; gap: 16px;
+    }
+
+    .conn-badge {
+      display: flex; align-items: center; gap: 6px;
+      padding: 4px 10px; border-radius: 100px;
+      font-size: 11px; font-weight: 600; letter-spacing: 0.04em;
+      text-transform: uppercase;
+    }
+
+    .conn-badge.offline {
+      background: var(--red-d); color: var(--red);
+    }
+
+    .conn-badge.online {
+      background: var(--green-d); color: var(--green);
+    }
+
+    .conn-dot {
+      width: 6px; height: 6px; border-radius: 50%;
+      background: currentColor;
+    }
+
+    .conn-badge.online .conn-dot {
+      animation: blink 2.4s ease-in-out infinite;
+    }
+
+    @keyframes blink {
+      0%, 100% { opacity: 1; }
+      50% { opacity: .35; }
+    }
+
+    .topbar-clock {
+      font-family: var(--font-mono);
+      font-size: 12px; color: var(--t3);
+    }
+
+    /* ─── MAIN CONTENT ────────────────────────────────────────────── */
+    .page-section {
+      display: none;
+      flex: 1;
+      padding: 20px;
+    }
+    .page-section.active {
+      display: block;
+    }
+
+    .content {
+      display: grid;
+      grid-template-columns: 260px 1fr 300px;
+      grid-template-rows: auto 1fr auto;
+      gap: 16px;
+    }
+
+    /* ================================================================
+       PANEL: base card style
+       ================================================================ */
+    .panel {
+      background: var(--bg-1);
+      border: 1px solid var(--border);
+      border-radius: var(--r2);
+      overflow: hidden;
+    }
+
+    .panel-head {
+      padding: 12px 16px;
+      border-bottom: 1px solid var(--border);
+      display: flex; align-items: center; gap: 8px;
+      font-size: 11px; font-weight: 600;
+      text-transform: uppercase; letter-spacing: 0.06em;
+      color: var(--t3);
+    }
+
+    .panel-head svg { width: 14px; height: 14px; fill: currentColor; }
+
+    .panel-body { padding: 16px; }
+
+    /* ================================================================
+       TANK PANEL (column 1, spans 2 rows)
+       ================================================================ */
+    .tank-panel {
+      grid-row: 1 / 3;
+    }
+
+    .tank-canvas {
+      display: flex; flex-direction: column; align-items: center;
+      padding: 12px 12px 12px;
+    }
+
+    /* SVG Tank — detailed with pipes */
+    .tank-wrap {
+      position: relative;
+      width: 150px; height: 220px;
+      margin-bottom: 10px;
+    }
+
+    .tank-overlay {
+      position: absolute; inset: 0;
+      display: flex; flex-direction: column;
+      align-items: center; justify-content: center;
+      pointer-events: none; z-index: 4;
+    }
+
+    .tank-pct {
+      font-family: var(--font-mono);
+      font-size: 36px; font-weight: 700;
+      color: #fff;
+      text-shadow: 0 2px 12px rgba(0,0,0,.6);
+      line-height: 1;
+    }
+
+    .tank-pct-sub {
+      font-size: 10px; font-weight: 600;
+      text-transform: uppercase; letter-spacing: .08em;
+      color: rgba(255,255,255,.5);
+      margin-top: 2px;
+    }
+
+    /* Water bubbles */
+    .bubble {
+      position: absolute;
+      border-radius: 50%;
+      background: rgba(255,255,255,.12);
+      z-index: 3;
+      pointer-events: none;
+    }
+
+    .bubble.b1 { width:6px; height:6px; left:38%; animation: rise 4.2s ease-in infinite 0s; }
+    .bubble.b2 { width:4px; height:4px; left:55%; animation: rise 3.5s ease-in infinite 0.8s; }
+    .bubble.b3 { width:5px; height:5px; left:46%; animation: rise 5s ease-in infinite 1.6s; }
+    .bubble.b4 { width:3px; height:3px; left:62%; animation: rise 3.8s ease-in infinite 2.2s; }
+    .bubble.b5 { width:5px; height:5px; left:35%; animation: rise 4.6s ease-in infinite 3s; }
+
+    @keyframes rise {
+      0%   { bottom: 10%; opacity: 0; }
+      10%  { opacity: .6; }
+      80%  { opacity: .3; }
+      100% { bottom: 95%; opacity: 0; }
+    }
+
+    /* Tank readouts */
+    .tank-readouts {
+      width: 100%;
+      display: flex; flex-direction: column; gap: 5px;
+    }
+
+    .readout {
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 6px 10px;
+      background: var(--bg-2);
+      border-radius: var(--r);
+      font-size: 11px;
+    }
+
+    .readout-label { color: var(--t3); }
+
+    .readout-val {
+      font-family: var(--font-mono);
+      font-weight: 500; color: var(--t1);
+      font-size: 11px;
+    }
+
+    /* ================================================================
+       CONTROLS PANEL (below tank)
+       ================================================================ */
+    .controls-panel {
+      grid-column: 1;
+    }
+
+    .ctrl-row {
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 12px 0;
+    }
+
+    .ctrl-row + .ctrl-row { border-top: 1px solid var(--border); }
+
+    .ctrl-info { display: flex; flex-direction: column; gap: 2px; }
+
+    .ctrl-title { font-size: 13px; font-weight: 600; }
+
+    .ctrl-desc { font-size: 11px; color: var(--t3); }
+
+    /* Toggle */
+    .toggle { position: relative; width: 44px; height: 24px; cursor: pointer; }
+    .toggle input { display: none; }
+
+    .toggle-track {
+      position: absolute; inset: 0;
+      background: var(--bg-4); border-radius: 12px;
+      transition: background 200ms;
+    }
+
+    .toggle-track::after {
+      content: '';
+      position: absolute; top: 3px; left: 3px;
+      width: 18px; height: 18px;
+      background: var(--t3); border-radius: 50%;
+      transition: all 200ms;
+    }
+
+    .toggle input:checked + .toggle-track {
+      background: var(--blue);
+    }
+
+    .toggle input:checked + .toggle-track::after {
+      transform: translateX(20px);
+      background: #fff;
+    }
+
+    /* Pump button */
+    .btn-pump {
+      padding: 7px 20px;
+      border: 1px solid var(--border);
+      border-radius: var(--r);
+      font-family: var(--font-sans);
+      font-size: 12px; font-weight: 600;
+      cursor: pointer;
+      text-transform: uppercase;
+      letter-spacing: .04em;
+      transition: all 180ms;
+    }
+
+    .btn-pump.is-off {
+      background: var(--green-d); color: var(--green);
+      border-color: hsl(152 40% 24%);
+    }
+
+    .btn-pump.is-off:hover {
+      background: hsl(152 40% 20%);
+    }
+
+    .btn-pump.is-on {
+      background: var(--red-d); color: var(--red);
+      border-color: hsl(0 40% 24%);
+    }
+
+    .btn-pump.is-on:hover {
+      background: hsl(0 40% 20%);
+    }
+
+    .btn-pump:disabled {
+      background: var(--bg-3); color: var(--t3);
+      border-color: var(--border);
+      cursor: not-allowed;
+      opacity: .6;
+    }
+
+    /* ================================================================
+       METRICS + CHART (column 2)
+       ================================================================ */
+    .col-center {
+      grid-column: 2;
+      grid-row: 1 / 3;
+      display: flex; flex-direction: column; gap: 16px;
+      min-width: 0;
+    }
+
+    /* Metric strip */
+    .metric-strip {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 12px;
+    }
+
+    .metric {
+      background: var(--bg-1);
+      border: 1px solid var(--border);
+      border-radius: var(--r2);
+      padding: 14px 16px;
+      position: relative;
+      transition: border-color 200ms;
+    }
+
+    .metric:hover { border-color: var(--bg-4); }
+
+    .metric-bar {
+      position: absolute; top: 0; left: 16px; right: 16px;
+      height: 2px; border-radius: 0 0 2px 2px;
+    }
+
+    .metric-bar.c-blue   { background: var(--blue); }
+    .metric-bar.c-cyan   { background: var(--cyan); }
+    .metric-bar.c-green  { background: var(--green); }
+    .metric-bar.c-amber  { background: var(--amber); }
+    .metric-bar.c-red    { background: var(--red); }
+
+    .metric-label {
+      font-size: 10px; font-weight: 600;
+      text-transform: uppercase; letter-spacing: .06em;
+      color: var(--t3); margin-bottom: 8px;
+    }
+
+    .metric-val {
+      font-family: var(--font-mono);
+      font-size: 22px; font-weight: 700;
+      line-height: 1;
+    }
+
+    .metric-unit { font-size: 12px; font-weight: 400; color: var(--t3); margin-left: 2px; }
+
+    .metric-trend {
+      margin-top: 6px;
+      font-size: 10px; font-weight: 500;
+      display: flex; align-items: center; gap: 4px;
+    }
+
+    .metric-trend svg { width: 12px; height: 12px; fill: currentColor; }
+
+    .trend-up   { color: var(--green); }
+    .trend-down { color: var(--red); }
+    .trend-flat { color: var(--t3); }
+
+    /* Chart panel */
+    .chart-panel {
+      flex: 1;
+      display: flex; flex-direction: column;
+      min-height: 300px;
+    }
+
+    .chart-panel .panel-head {
+      display: flex; justify-content: space-between;
+    }
+
+    .chart-toolbar {
+      display: flex; gap: 4px; margin-left: auto;
+    }
+
+    .chart-range-btn {
+      padding: 3px 10px; border: 1px solid var(--border);
+      border-radius: var(--r); background: transparent;
+      color: var(--t3); font-size: 11px; font-weight: 500;
+      cursor: pointer; font-family: var(--font-sans);
+      transition: all 150ms;
+    }
+
+    .chart-range-btn:hover { background: var(--bg-3); color: var(--t2); }
+    .chart-range-btn.active { background: var(--blue-d); color: var(--blue); border-color: hsl(210 60% 30%); }
+
+    .chart-body {
+      flex: 1; padding: 12px 16px 16px;
+      position: relative;
+    }
+
+    .chart-body canvas { width: 100% !important; }
+
+    /* ================================================================
+       RIGHT COLUMN: EVENT LOG + STATUS
+       ================================================================ */
+    .col-right {
+      grid-column: 3;
+      grid-row: 1 / 3;
+      display: flex; flex-direction: column; gap: 16px;
+      min-width: 0;
+    }
+
+    /* System status mini-cards */
+    .sys-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 8px;
+    }
+
+    .sys-card {
+      background: var(--bg-2);
+      border-radius: var(--r);
+      padding: 10px 12px;
+      display: flex; flex-direction: column; gap: 4px;
+    }
+
+    .sys-card-label {
+      font-size: 10px; font-weight: 600;
+      text-transform: uppercase; letter-spacing: .05em;
+      color: var(--t3);
+    }
+
+    .sys-card-value {
+      font-family: var(--font-mono);
+      font-size: 14px; font-weight: 600;
+    }
+
+    .sys-ok  { color: var(--green); }
+    .sys-err { color: var(--red); }
+    .sys-warn { color: var(--amber); }
+
+    /* Event log */
+    .log-panel { flex: 1; display: flex; flex-direction: column; min-height: 0; }
+
+    .log-body {
+      flex: 1; overflow-y: auto;
+      padding: 8px 12px;
+      display: flex; flex-direction: column;
+      gap: 2px;
+    }
+
+    .log-entry {
+      display: grid;
+      grid-template-columns: 60px 1fr;
+      gap: 8px;
+      padding: 5px 6px;
+      border-radius: 4px;
+      font-size: 11px;
+      transition: background 150ms;
+    }
+
+    .log-entry:hover { background: var(--bg-2); }
+
+    .log-time {
+      font-family: var(--font-mono);
+      color: var(--t3); font-size: 10px;
+      white-space: nowrap;
+    }
+
+    .log-msg { color: var(--t2); }
+    .log-msg.info { color: var(--cyan); }
+    .log-msg.warn { color: var(--amber); }
+    .log-msg.error { color: var(--red); }
+    .log-msg.success { color: var(--green); }
+
+    /* ================================================================
+       TOAST NOTIFICATIONS
+       ================================================================ */
+    .toast-container {
+      position: fixed; bottom: 20px; right: 20px;
+      display: flex; flex-direction: column-reverse; gap: 8px;
+      z-index: 999;
+    }
+
+    .toast {
+      padding: 10px 16px;
+      border-radius: var(--r);
+      font-size: 12px; font-weight: 500;
+      display: flex; align-items: center; gap: 8px;
+      animation: toast-in 300ms ease-out;
+      box-shadow: 0 8px 32px rgba(0,0,0,.4);
+      max-width: 340px;
+    }
+
+    .toast svg { width: 16px; height: 16px; fill: currentColor; flex-shrink: 0; }
+
+    .toast.t-info    { background: var(--blue-d); color: var(--blue); border: 1px solid hsl(210 60% 28%); }
+    .toast.t-success { background: var(--green-d); color: var(--green); border: 1px solid hsl(152 40% 24%); }
+    .toast.t-warning { background: var(--amber-d); color: var(--amber); border: 1px solid hsl(38 40% 24%); }
+    .toast.t-error   { background: var(--red-d); color: var(--red); border: 1px solid hsl(0 40% 24%); }
+
+    @keyframes toast-in {
+      from { opacity: 0; transform: translateY(12px) scale(.96); }
+      to   { opacity: 1; transform: translateY(0) scale(1); }
+    }
+
+    .toast-exit {
+      animation: toast-out 250ms ease-in forwards;
+    }
+
+    @keyframes toast-out {
+      to { opacity: 0; transform: translateY(-8px) scale(.96); }
+    }
+
+    /* ================================================================
+       SECTION: HISTÓRICO TABLE
+       ================================================================ */
+    .hist-controls {
+      display: flex; align-items: center; gap: 12px;
+      margin-bottom: 16px; flex-wrap: wrap;
+    }
+
+    .hist-controls label {
+      font-size: 12px; color: var(--t3); font-weight: 500;
+    }
+
+    .hist-controls select,
+    .hist-controls input[type="number"] {
+      background: var(--bg-2); border: 1px solid var(--border);
+      border-radius: var(--r); color: var(--t1);
+      font-family: var(--font-sans); font-size: 12px;
+      padding: 6px 10px; outline: none;
+      transition: border-color 150ms;
+    }
+
+    .hist-controls select:focus,
+    .hist-controls input:focus {
+      border-color: var(--blue);
+    }
+
+    .hist-btn {
+      padding: 6px 16px; border: 1px solid var(--border);
+      border-radius: var(--r); background: var(--blue-d);
+      color: var(--blue); font-family: var(--font-sans);
+      font-size: 12px; font-weight: 600; cursor: pointer;
+      transition: all 150ms; letter-spacing: .03em;
+    }
+
+    .hist-btn:hover { background: hsl(210 60% 22%); }
+
+    .hist-btn.secondary {
+      background: var(--bg-3); color: var(--t2);
+    }
+
+    .hist-btn.secondary:hover {
+      background: var(--bg-4);
+    }
+
+    .data-table-wrap {
+      overflow-x: auto; border-radius: var(--r);
+      border: 1px solid var(--border);
+    }
+
+    .data-table {
+      width: 100%; border-collapse: collapse;
+      font-size: 12px;
+    }
+
+    .data-table thead {
+      background: var(--bg-2);
+      position: sticky; top: 0; z-index: 2;
+    }
+
+    .data-table th {
+      padding: 10px 14px;
+      text-align: left; font-weight: 600;
+      text-transform: uppercase; letter-spacing: .05em;
+      font-size: 10px; color: var(--t3);
+      border-bottom: 1px solid var(--border);
+      white-space: nowrap;
+    }
+
+    .data-table td {
+      padding: 8px 14px;
+      border-bottom: 1px solid var(--border);
+      font-family: var(--font-mono); font-size: 11px;
+      color: var(--t2); white-space: nowrap;
+    }
+
+    .data-table tbody tr {
+      transition: background 120ms;
+    }
+
+    .data-table tbody tr:hover {
+      background: var(--bg-2);
+    }
+
+    .data-table tbody tr:last-child td {
+      border-bottom: none;
+    }
+
+    .badge {
+      display: inline-block; padding: 2px 8px;
+      border-radius: 100px; font-size: 10px;
+      font-weight: 600; letter-spacing: .03em;
+    }
+
+    .badge-on  { background: var(--green-d); color: var(--green); }
+    .badge-off { background: var(--bg-3); color: var(--t3); }
+    .badge-auto { background: var(--blue-d); color: var(--blue); }
+    .badge-manual { background: var(--amber-d); color: var(--amber); }
+    .badge-ok  { background: var(--green-d); color: var(--green); }
+    .badge-alert { background: var(--red-d); color: var(--red); }
+
+    .hist-summary {
+      display: flex; gap: 8px; margin-top: 12px;
+      font-size: 11px; color: var(--t3);
+    }
+
+    .hist-summary span { color: var(--t2); font-weight: 500; }
+
+    /* ================================================================
+       SECTION: CONFIGURACIÓN
+       ================================================================ */
+    .config-grid {
+      display: grid; grid-template-columns: 1fr 1fr;
+      gap: 16px;
+    }
+
+    .config-card {
+      background: var(--bg-1); border: 1px solid var(--border);
+      border-radius: var(--r2); padding: 20px;
+    }
+
+    .config-card-title {
+      font-size: 13px; font-weight: 600;
+      margin-bottom: 16px; color: var(--t1);
+      display: flex; align-items: center; gap: 8px;
+    }
+
+    .config-card-title svg {
+      width: 16px; height: 16px; fill: var(--blue);
+    }
+
+    .config-field {
+      display: flex; flex-direction: column; gap: 4px;
+      margin-bottom: 14px;
+    }
+
+    .config-field:last-child { margin-bottom: 0; }
+
+    .config-label {
+      font-size: 11px; font-weight: 600;
+      text-transform: uppercase; letter-spacing: .04em;
+      color: var(--t3);
+    }
+
+    .config-input {
+      background: var(--bg-2); border: 1px solid var(--border);
+      border-radius: var(--r); color: var(--t1);
+      font-family: var(--font-mono); font-size: 13px;
+      padding: 8px 12px; outline: none;
+      transition: border-color 150ms;
+      width: 100%;
+    }
+
+    .config-input:focus { border-color: var(--blue); }
+    .config-input:disabled { opacity: .5; cursor: not-allowed; }
+
+    .config-hint {
+      font-size: 10px; color: var(--t3); margin-top: 2px;
+    }
+
+    .config-actions {
+      display: flex; gap: 8px; margin-top: 20px;
+    }
+
+    .config-save {
+      padding: 8px 24px; border: none;
+      border-radius: var(--r); background: var(--blue);
+      color: #fff; font-family: var(--font-sans);
+      font-size: 12px; font-weight: 600; cursor: pointer;
+      transition: all 150ms;
+    }
+
+    .config-save:hover { background: hsl(210 100% 55%); }
+
+    .config-reset {
+      padding: 8px 24px; border: 1px solid var(--border);
+      border-radius: var(--r); background: transparent;
+      color: var(--t2); font-family: var(--font-sans);
+      font-size: 12px; font-weight: 600; cursor: pointer;
+      transition: all 150ms;
+    }
+
+    .config-reset:hover { background: var(--bg-3); }
+
+    .config-status {
+      margin-top: 12px; padding: 8px 12px;
+      border-radius: var(--r); font-size: 11px;
+      font-weight: 500; display: none;
+    }
+
+    .config-status.show { display: block; }
+    .config-status.ok { background: var(--green-d); color: var(--green); }
+    .config-status.err { background: var(--red-d); color: var(--red); }
+
+    /* ================================================================
+       SECTION: AYUDA
+       ================================================================ */
+    .help-layout {
+      display: grid; grid-template-columns: 200px 1fr;
+      gap: 20px;
+    }
+
+    .help-nav {
+      display: flex; flex-direction: column; gap: 2px;
+    }
+
+    .help-nav-btn {
+      padding: 8px 12px; border: none;
+      border-radius: var(--r); background: transparent;
+      color: var(--t3); font-family: var(--font-sans);
+      font-size: 12px; font-weight: 500;
+      cursor: pointer; text-align: left;
+      transition: all 150ms;
+    }
+
+    .help-nav-btn:hover { background: var(--bg-3); color: var(--t2); }
+    .help-nav-btn.active { background: var(--blue-d); color: var(--blue); }
+
+    .help-content {
+      background: var(--bg-1); border: 1px solid var(--border);
+      border-radius: var(--r2); padding: 24px;
+      line-height: 1.7;
+    }
+
+    .help-content h3 {
+      font-size: 16px; margin-bottom: 12px; color: var(--t1);
+    }
+
+    .help-content p {
+      font-size: 13px; color: var(--t2); margin-bottom: 12px;
+    }
+
+    .help-content ul, .help-content ol {
+      padding-left: 20px; margin-bottom: 12px;
+    }
+
+    .help-content li {
+      font-size: 13px; color: var(--t2); margin-bottom: 6px;
+    }
+
+    .help-content code {
+      font-family: var(--font-mono); font-size: 12px;
+      background: var(--bg-2); padding: 2px 6px;
+      border-radius: 4px; color: var(--cyan);
+    }
+
+    .help-content .code-block {
+      background: var(--bg-0); border: 1px solid var(--border);
+      border-radius: var(--r); padding: 12px 16px;
+      font-family: var(--font-mono); font-size: 11px;
+      color: var(--t2); overflow-x: auto; margin: 12px 0;
+      line-height: 1.6;
+    }
+
+    .help-topic { display: none; }
+    .help-topic.active { display: block; }
+
+    .help-content .key-val {
+      display: grid; grid-template-columns: 140px 1fr;
+      gap: 4px 12px; margin: 8px 0;
+    }
+
+    .help-content .key-val dt {
+      font-size: 12px; color: var(--t3); font-weight: 600;
+    }
+
+    .help-content .key-val dd {
+      font-size: 12px; color: var(--t2);
+    }
+
+    @media (max-width: 900px) {
+      .config-grid { grid-template-columns: 1fr; }
+      .help-layout { grid-template-columns: 1fr; }
+    }
+
+    /* ================================================================
+       RESPONSIVE
+       ================================================================ */
+    @media (max-width: 1200px) {
+      .content {
+        grid-template-columns: 250px 1fr;
+        grid-template-rows: auto auto 1fr;
+      }
+      .col-right { grid-column: 1 / 3; grid-row: 3; }
+      .metric-strip { grid-template-columns: repeat(3, 1fr); }
+    }
+
+    @media (max-width: 768px) {
+      .sidebar { width: 0; overflow: hidden; }
+      .content {
+        grid-template-columns: 1fr;
+        grid-template-rows: auto;
+        padding: 12px;
+      }
+      .tank-panel { grid-row: auto; }
+      .col-center { grid-column: 1; grid-row: auto; }
+      .col-right { grid-column: 1; grid-row: auto; }
+      .metric-strip { grid-template-columns: repeat(2, 1fr); }
+    }
+  </style>
+</head>
+
+<body>
+
+  <!-- ═══════ SIDEBAR ═══════ -->
+  <aside class="sidebar">
+    <div class="sidebar-logo">
+      <svg viewBox="0 0 24 24"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-1 17.93c-3.95-.49-7-3.85-7-7.93 0-.62.08-1.21.21-1.79L9 15v1c0 1.1.9 2 2 2v1.93zm6.9-2.54c-.26-.81-1-1.39-1.9-1.39h-1v-3c0-.55-.45-1-1-1H8v-2h2c.55 0 1-.45 1-1V7h2c1.1 0 2-.9 2-2v-.41c2.93 1.19 5 4.06 5 7.41 0 2.08-.8 3.97-2.1 5.39z"/></svg>
+    </div>
+    <nav class="sidebar-nav">
+      <button class="sidebar-btn active" title="Dashboard">
+        <svg viewBox="0 0 24 24"><path d="M3 13h8V3H3v10zm0 8h8v-6H3v6zm10 0h8V11h-8v10zm0-18v6h8V3h-8z"/></svg>
+      </button>
+      <button class="sidebar-btn" title="Histórico">
+        <svg viewBox="0 0 24 24"><path d="M11.99 2C6.47 2 2 6.48 2 12s4.47 10 9.99 10C17.52 22 22 17.52 22 12S17.52 2 11.99 2zM12 20c-4.42 0-8-3.58-8-8s3.58-8 8-8 8 3.58 8 8-3.58 8-8 8zm.5-13H11v6l5.25 3.15.75-1.23-4.5-2.67z"/></svg>
+      </button>
+      <button class="sidebar-btn" title="Configuración">
+        <svg viewBox="0 0 24 24"><path d="M19.14 12.94c.04-.3.06-.61.06-.94 0-.32-.02-.64-.07-.94l2.03-1.58a.49.49 0 00.12-.61l-1.92-3.32a.49.49 0 00-.59-.22l-2.39.96c-.5-.38-1.03-.7-1.62-.94l-.36-2.54a.484.484 0 00-.48-.41h-3.84c-.24 0-.43.17-.47.41l-.36 2.54c-.59.24-1.13.57-1.62.94l-2.39-.96a.49.49 0 00-.59.22L2.74 8.87c-.12.21-.08.47.12.61l2.03 1.58c-.05.3-.07.62-.07.94s.02.64.07.94l-2.03 1.58a.49.49 0 00-.12.61l1.92 3.32c.12.22.37.29.59.22l2.39-.96c.5.38 1.03.7 1.62.94l.36 2.54c.05.24.24.41.48.41h3.84c.24 0 .44-.17.47-.41l.36-2.54c.59-.24 1.13-.56 1.62-.94l2.39.96c.22.08.47 0 .59-.22l1.92-3.32c.12-.22.07-.47-.12-.61l-2.01-1.58zM12 15.6A3.6 3.6 0 1112 8.4a3.6 3.6 0 010 7.2z"/></svg>
+      </button>
+    </nav>
+    <div class="sidebar-bottom">
+      <button class="sidebar-btn" title="Ayuda">
+        <svg viewBox="0 0 24 24"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 17h-2v-2h2v2zm2.07-7.75l-.9.92C13.45 12.9 13 13.5 13 15h-2v-.5c0-1.1.45-2.1 1.17-2.83l1.24-1.26c.37-.36.59-.86.59-1.41 0-1.1-.9-2-2-2s-2 .9-2 2H8c0-2.21 1.79-4 4-4s4 1.79 4 4c0 .88-.36 1.68-.93 2.25z"/></svg>
+      </button>
+    </div>
+  </aside>
+
+  <!-- ═══════ SHELL ═══════ -->
+  <div class="shell">
+
+    <!-- TOP BAR -->
+    <header class="topbar">
+      <div class="topbar-breadcrumb">
+        IoT Campus
+        <svg viewBox="0 0 24 24" width="12" height="12" fill="currentColor"><path d="M10 6L8.59 7.41 13.17 12l-4.58 4.59L10 18l6-6z"/></svg>
+        <span>Tanque 1</span>
+      </div>
+      <div class="topbar-right">
+        <div class="conn-badge offline" id="connBadge">
+          <span class="conn-dot"></span>
+          <span id="connText">Sin conexión</span>
+        </div>
+        <div class="topbar-clock" id="clock">--:--:--</div>
+      </div>
+    </header>
+
+    <!-- MAIN CONTENT SECTIONS -->
+
+    <!-- SECTION 1: DASHBOARD -->
+    <div id="section-dashboard" class="page-section active">
+      <div class="content">
+
+        <!-- ─── COL 1: TANK ─────────────────────────── -->
+      <div class="tank-panel panel">
+        <div class="panel-head">
+          <svg viewBox="0 0 24 24"><path d="M17 6.14V4c0-1.1-.9-2-2-2H9c-1.1 0-2 .9-2 2v2.14c-1.72 1.04-3 2.88-3 5.36v6c0 2.76 3.58 4.5 8 4.5s8-1.74 8-4.5v-6c0-2.48-1.28-4.32-3-5.36zM9 4h6v1.26C14.06 5.1 13.05 5 12 5s-2.06.1-3 .26V4z"/></svg>
+          NIVEL DEL TANQUE
+        </div>
+        <div class="tank-canvas">
+          <div class="tank-wrap">
+            <!-- Overlay % -->
+            <div class="tank-overlay">
+              <div class="tank-pct" id="tankPct">--</div>
+              <div class="tank-pct-sub">% llenado</div>
+            </div>
+
+            <!-- Bubbles -->
+            <div class="bubble b1"></div>
+            <div class="bubble b2"></div>
+            <div class="bubble b3"></div>
+            <div class="bubble b4"></div>
+            <div class="bubble b5"></div>
+
+            <svg viewBox="0 0 180 300" width="100%" height="100%" xmlns="http://www.w3.org/2000/svg">
+              <defs>
+                <linearGradient id="wGrad" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="0%"   stop-color="hsl(185 72% 52%)" stop-opacity=".85" id="wStop1"/>
+                  <stop offset="100%" stop-color="hsl(210 100% 50%)" stop-opacity=".55" id="wStop2"/>
+                </linearGradient>
+                <linearGradient id="tankWall" x1="0" y1="0" x2="1" y2="0">
+                  <stop offset="0%"   stop-color="hsl(215 22% 18%)" />
+                  <stop offset="100%" stop-color="hsl(215 22% 14%)" />
+                </linearGradient>
+                <clipPath id="tClip">
+                  <rect x="16" y="12" width="148" height="260" rx="8"/>
+                </clipPath>
+                <!-- Reflection -->
+                <linearGradient id="refl" x1="0" y1="0" x2="1" y2="0">
+                  <stop offset="0%"   stop-color="#fff" stop-opacity=".04"/>
+                  <stop offset="50%"  stop-color="#fff" stop-opacity=".08"/>
+                  <stop offset="100%" stop-color="#fff" stop-opacity="0"/>
+                </linearGradient>
+              </defs>
+
+              <!-- Tank body -->
+              <rect x="16" y="12" width="148" height="260" rx="8"
+                    fill="url(#tankWall)" stroke="hsl(215 16% 24%)" stroke-width="1.5"/>
+
+              <!-- Scale ticks -->
+              <g stroke="hsl(215 12% 28%)" stroke-width=".7" font-size="8"
+                 font-family="IBM Plex Mono" fill="hsl(215 12% 36%)" text-anchor="end">
+                <line x1="16" y1="77"  x2="30" y2="77"/>  <text x="12" y="80">75</text>
+                <line x1="16" y1="142" x2="30" y2="142"/> <text x="12" y="145">50</text>
+                <line x1="16" y1="207" x2="30" y2="207"/> <text x="12" y="210">25</text>
+              </g>
+
+              <!-- Water -->
+              <g clip-path="url(#tClip)">
+                <rect id="waterBody" x="16" y="272" width="148" height="260"
+                      fill="url(#wGrad)"/>
+                <!-- Wave surface -->
+                <g id="waveGroup">
+                  <path d="M16,0 Q46,-6 76,0 Q106,6 136,0 Q166,-6 196,0 L196,8 L16,8 Z"
+                        fill="hsl(185 72% 52%)" opacity=".35" id="wavePath">
+                    <animateTransform attributeName="transform" type="translate"
+                      values="0,0; -30,0; 0,0" dur="4s" repeatCount="indefinite"/>
+                  </path>
+                </g>
+              </g>
+
+              <!-- Glass reflection -->
+              <rect x="24" y="16" width="28" height="248" rx="4" fill="url(#refl)"/>
+
+              <!-- Pipe: input (top-right) -->
+              <g fill="hsl(215 16% 24%)" stroke="hsl(215 12% 30%)" stroke-width="1">
+                <rect x="158" y="28" width="22" height="10" rx="2"/>
+                <rect x="164" y="18" width="10" height="20" rx="2"/>
+              </g>
+              <!-- Pipe: output (bottom-left) -->
+              <g fill="hsl(215 16% 24%)" stroke="hsl(215 12% 30%)" stroke-width="1">
+                <rect x="0" y="248" width="22" height="10" rx="2"/>
+                <rect x="6" y="248" width="10" height="24" rx="2"/>
+              </g>
+
+              <!-- Sensor icon -->
+              <g transform="translate(90, 2)">
+                <rect x="-14" y="0" width="28" height="9" rx="2"
+                      fill="hsl(215 18% 20%)" stroke="hsl(215 12% 30%)" stroke-width=".8"/>
+                <text x="0" y="7" text-anchor="middle"
+                      font-size="5" fill="hsl(215 12% 40%)" font-family="IBM Plex Mono">
+                  JSN-SR04T
+                </text>
+              </g>
+            </svg>
+          </div>
+
+          <!-- Readouts -->
+          <div class="tank-readouts">
+            <div class="readout">
+              <span class="readout-label">Cota de agua</span>
+              <span class="readout-val" id="rCota">— cm</span>
+            </div>
+            <div class="readout">
+              <span class="readout-label">Distancia sensor</span>
+              <span class="readout-val" id="rDist">— cm</span>
+            </div>
+            <div class="readout">
+              <span class="readout-label">Modo operación</span>
+              <span class="readout-val" id="rModo">—</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Controls (below tank, same column) -->
+      <div class="controls-panel panel" style="grid-column:1;">
+        <div class="panel-head">
+          <svg viewBox="0 0 24 24"><path d="M3 17v2h6v-2H3zM3 5v2h10V5H3zm10 16v-2h8v-2h-8v-2h-2v6h2zM7 9v2H3v2h4v2h2V9H7zm14 4v-2H11v2h10zm-6-4h2V7h4V5h-4V3h-2v6z"/></svg>
+          CONTROLES
+        </div>
+        <div class="panel-body">
+          <div class="ctrl-row">
+            <div class="ctrl-info">
+              <span class="ctrl-title">Modo de operación</span>
+              <span class="ctrl-desc" id="ctrlModeDesc">Automático · 20%–85%</span>
+            </div>
+            <label class="toggle" title="AUTO / MANUAL">
+              <input type="checkbox" id="modeToggle" checked />
+              <span class="toggle-track"></span>
+            </label>
+          </div>
+          <div class="ctrl-row">
+            <div class="ctrl-info">
+              <span class="ctrl-title">Bomba de agua</span>
+              <span class="ctrl-desc" id="ctrlPumpDesc">Control automático</span>
+            </div>
+            <button class="btn-pump is-off" id="pumpBtn" disabled>Encender</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- ─── COL 2: METRICS + CHART ─────────────── -->
+      <div class="col-center">
+
+        <!-- Metric cards -->
+        <div class="metric-strip">
+          <div class="metric" id="mNivel">
+            <div class="metric-bar c-blue"></div>
+            <div class="metric-label">Nivel</div>
+            <div class="metric-val" id="mvNivel">—<span class="metric-unit">%</span></div>
+            <div class="metric-trend trend-flat" id="mtNivel">
+              <svg viewBox="0 0 24 24"><path d="M22 12l-4-4v3H3v2h15v3z"/></svg>
+              <span>sin datos</span>
+            </div>
+          </div>
+          <div class="metric" id="mCota">
+            <div class="metric-bar c-cyan"></div>
+            <div class="metric-label">Cota</div>
+            <div class="metric-val" id="mvCota">—<span class="metric-unit">cm</span></div>
+            <div class="metric-trend trend-flat" id="mtCota">
+              <svg viewBox="0 0 24 24"><path d="M22 12l-4-4v3H3v2h15v3z"/></svg>
+              <span>sin datos</span>
+            </div>
+          </div>
+          <div class="metric" id="mDist">
+            <div class="metric-bar c-green"></div>
+            <div class="metric-label">Distancia</div>
+            <div class="metric-val" id="mvDist">—<span class="metric-unit">cm</span></div>
+            <div class="metric-trend trend-flat" id="mtDist">
+              <svg viewBox="0 0 24 24"><path d="M22 12l-4-4v3H3v2h15v3z"/></svg>
+              <span>sin datos</span>
+            </div>
+          </div>
+          <div class="metric" id="mBomba">
+            <div class="metric-bar c-amber"></div>
+            <div class="metric-label">Bomba</div>
+            <div class="metric-val" id="mvBomba">—</div>
+          </div>
+        </div>
+
+        <!-- Chart -->
+        <div class="chart-panel panel">
+          <div class="panel-head">
+            <svg viewBox="0 0 24 24"><path d="M3.5 18.49l6-6.01 4 4L22 6.92l-1.41-1.41-7.09 7.97-4-4L2 16.99z"/></svg>
+            HISTÓRICO DE NIVEL
+            <div class="chart-toolbar">
+              <button class="chart-range-btn" data-limit="50">50</button>
+              <button class="chart-range-btn active" data-limit="100">100</button>
+              <button class="chart-range-btn" data-limit="500">500</button>
+              <button class="chart-range-btn" onclick="fetchHistory()" title="Actualizar">↻</button>
+            </div>
+          </div>
+          <div class="chart-body">
+            <canvas id="chartCanvas"></canvas>
+          </div>
+        </div>
+      </div>
+
+      <!-- ─── COL 3: STATUS + LOG ─────────────────── -->
+      <div class="col-right">
+
+        <!-- System status -->
+        <div class="panel">
+          <div class="panel-head">
+            <svg viewBox="0 0 24 24"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 15l-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z"/></svg>
+            ESTADO DEL SISTEMA
+          </div>
+          <div class="panel-body">
+            <div class="sys-grid">
+              <div class="sys-card">
+                <span class="sys-card-label">MQTT</span>
+                <span class="sys-card-value sys-err" id="sysMqtt">Offline</span>
+              </div>
+              <div class="sys-card">
+                <span class="sys-card-label">API</span>
+                <span class="sys-card-value sys-warn" id="sysApi">—</span>
+              </div>
+              <div class="sys-card">
+                <span class="sys-card-label">Mensajes</span>
+                <span class="sys-card-value" id="sysMsgCount" style="color:var(--t1)">0</span>
+              </div>
+              <div class="sys-card">
+                <span class="sys-card-label">Uptime</span>
+                <span class="sys-card-value" id="sysUptime" style="color:var(--t2)">0s</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Event Log -->
+        <div class="log-panel panel">
+          <div class="panel-head">
+            <svg viewBox="0 0 24 24"><path d="M14 2H6c-1.1 0-2 .9-2 2v16c0 1.1.89 2 1.99 2H18c1.1 0 2-.9 2-2V8l-6-6zm2 16H8v-2h8v2zm0-4H8v-2h8v2zm-3-5V3.5L18.5 9H13z"/></svg>
+            REGISTRO DE EVENTOS
+          </div>
+          <div class="log-body" id="logBody">
+            <!-- populated by JS -->
+          </div>
+        </div>
+      </div>
+
+      </div><!-- /content -->
+    </div><!-- /section-dashboard -->
+
+    <!-- SECTION 2: HISTÓRICO -->
+    <div id="section-historico" class="page-section">
+      <div class="panel">
+        <div class="panel-head">
+          <svg viewBox="0 0 24 24"><path d="M11.99 2C6.47 2 2 6.48 2 12s4.47 10 9.99 10C17.52 22 22 17.52 22 12S17.52 2 11.99 2zM12 20c-4.42 0-8-3.58-8-8s3.58-8 8-8 8 3.58 8 8-3.58 8-8 8zm.5-13H11v6l5.25 3.15.75-1.23-4.5-2.67z"/></svg>
+          HISTÓRICO DE DATOS Y ALERTAS
+        </div>
+        <div class="panel-body">
+          <!-- Controls -->
+          <div class="hist-controls">
+            <label>Registros:</label>
+            <select id="histLimit">
+              <option value="50">50</option>
+              <option value="100" selected>100</option>
+              <option value="200">200</option>
+              <option value="500">500</option>
+              <option value="1000">1000</option>
+            </select>
+            <label>Filtro bomba:</label>
+            <select id="histFilterBomba">
+              <option value="all">Todos</option>
+              <option value="on">Solo ON</option>
+              <option value="off">Solo OFF</option>
+            </select>
+            <button class="hist-btn" id="histLoadBtn">Cargar datos</button>
+            <button class="hist-btn secondary" id="histExportBtn">Exportar CSV</button>
+          </div>
+
+          <!-- Table -->
+          <div class="data-table-wrap" style="max-height: 520px; overflow-y: auto;">
+            <table class="data-table">
+              <thead>
+                <tr>
+                  <th>ID</th>
+                  <th>Fecha y hora</th>
+                  <th>Nivel %</th>
+                  <th>Cota (cm)</th>
+                  <th>Distancia (cm)</th>
+                  <th>Bomba</th>
+                  <th>Modo</th>
+                </tr>
+              </thead>
+              <tbody id="histTableBody">
+                <tr><td colspan="7" style="text-align:center; color: var(--t3); padding: 40px;">Presiona "Cargar datos" para visualizar el historial.</td></tr>
+              </tbody>
+            </table>
+          </div>
+
+          <div class="hist-summary" id="histSummary"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- SECTION 3: CONFIGURACIÓN -->
+    <div id="section-config" class="page-section">
+      <div class="config-grid">
+        <!-- Connection Settings -->
+        <div class="config-card">
+          <div class="config-card-title">
+            <svg viewBox="0 0 24 24"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-1 17.93c-3.95-.49-7-3.85-7-7.93 0-.62.08-1.21.21-1.79L9 15v1c0 1.1.9 2 2 2v1.93zm6.9-2.54c-.26-.81-1-1.39-1.9-1.39h-1v-3c0-.55-.45-1-1-1H8v-2h2c.55 0 1-.45 1-1V7h2c1.1 0 2-.9 2-2v-.41c2.93 1.19 5 4.06 5 7.41 0 2.08-.8 3.97-2.1 5.39z"/></svg>
+            Conexión MQTT
+          </div>
+          <div class="config-field">
+            <label class="config-label">Host del broker</label>
+            <input class="config-input" type="text" id="cfgMqttHost" placeholder="localhost">
+            <span class="config-hint">IP o hostname del broker Mosquitto</span>
+          </div>
+          <div class="config-field">
+            <label class="config-label">Puerto WebSocket</label>
+            <input class="config-input" type="number" id="cfgMqttPort" placeholder="9001">
+            <span class="config-hint">Puerto WebSocket (por defecto 9001)</span>
+          </div>
+          <div class="config-field">
+            <label class="config-label">Topic telemetría</label>
+            <input class="config-input" type="text" id="cfgTopicTelem" placeholder="campus/tanque1/telemetria">
+          </div>
+          <div class="config-field">
+            <label class="config-label">Topic comando</label>
+            <input class="config-input" type="text" id="cfgTopicCmd" placeholder="campus/tanque1/comando">
+          </div>
+        </div>
+
+        <!-- API Settings -->
+        <div class="config-card">
+          <div class="config-card-title">
+            <svg viewBox="0 0 24 24"><path d="M21 3H3c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h18c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm0 16H3V5h18v14zM5 15h14v3H5z"/></svg>
+            API Backend
+          </div>
+          <div class="config-field">
+            <label class="config-label">URL base de la API</label>
+            <input class="config-input" type="text" id="cfgApiBase" placeholder="http://localhost:8000">
+            <span class="config-hint">Dirección del servidor FastAPI</span>
+          </div>
+          <div class="config-field">
+            <label class="config-label">Intervalo de actualización</label>
+            <input class="config-input" type="number" id="cfgRefreshInterval" placeholder="30" min="5" max="300">
+            <span class="config-hint">Segundos entre consultas al historial (5–300)</span>
+          </div>
+          <div class="config-field">
+            <label class="config-label">Límite historial (chart)</label>
+            <input class="config-input" type="number" id="cfgHistoryLimit" placeholder="100" min="10" max="1000">
+            <span class="config-hint">Cantidad de registros del gráfico (10–1000)</span>
+          </div>
+        </div>
+
+        <!-- Tank Parameters -->
+        <div class="config-card">
+          <div class="config-card-title">
+            <svg viewBox="0 0 24 24"><path d="M17 6.14V4c0-1.1-.9-2-2-2H9c-1.1 0-2 .9-2 2v2.14c-1.72 1.04-3 2.88-3 5.36v6c0 2.76 3.58 4.5 8 4.5s8-1.74 8-4.5v-6c0-2.48-1.28-4.32-3-5.36zM9 4h6v1.26C14.06 5.1 13.05 5 12 5s-2.06.1-3 .26V4z"/></svg>
+            Parámetros del Tanque
+          </div>
+          <div class="config-field">
+            <label class="config-label">Umbral bajo (%)</label>
+            <input class="config-input" type="number" id="cfgUmbralBajo" value="20" min="0" max="100">
+            <span class="config-hint">Por debajo de este nivel se enciende la bomba (modo AUTO)</span>
+          </div>
+          <div class="config-field">
+            <label class="config-label">Umbral alto (%)</label>
+            <input class="config-input" type="number" id="cfgUmbralAlto" value="85" min="0" max="100">
+            <span class="config-hint">Por encima de este nivel se apaga la bomba (modo AUTO)</span>
+          </div>
+          <div class="config-field">
+            <label class="config-label">Distancia vacío (cm)</label>
+            <input class="config-input" type="number" id="cfgDistVacio" value="200" min="1">
+            <span class="config-hint">Distancia sensor → fondo cuando el tanque está vacío</span>
+          </div>
+          <div class="config-field">
+            <label class="config-label">Distancia lleno (cm)</label>
+            <input class="config-input" type="number" id="cfgDistLleno" value="25" min="1">
+            <span class="config-hint">Distancia sensor → superficie al 100%</span>
+          </div>
+        </div>
+
+        <!-- Display Settings -->
+        <div class="config-card">
+          <div class="config-card-title">
+            <svg viewBox="0 0 24 24"><path d="M12 4.5C7 4.5 2.73 7.61 1 12c1.73 4.39 6 7.5 11 7.5s9.27-3.11 11-7.5c-1.73-4.39-6-7.5-11-7.5zM12 17c-2.76 0-5-2.24-5-5s2.24-5 5-5 5 2.24 5 5-2.24 5-5 5zm0-8c-1.66 0-3 1.34-3 3s1.34 3 3 3 3-1.34 3-3-1.34-3-3-3z"/></svg>
+            Interfaz
+          </div>
+          <div class="config-field">
+            <label class="config-label">Máximo entradas en log</label>
+            <input class="config-input" type="number" id="cfgMaxLog" value="80" min="10" max="500">
+            <span class="config-hint">Cantidad máxima de entradas en el registro de eventos</span>
+          </div>
+          <div class="config-field">
+            <label class="config-label">Decimales en valores</label>
+            <input class="config-input" type="number" id="cfgDecimals" value="1" min="0" max="3">
+            <span class="config-hint">Cantidad de decimales para porcentaje, cota, etc.</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="config-actions">
+        <button class="config-save" id="cfgSaveBtn">Guardar configuración</button>
+        <button class="config-reset" id="cfgResetBtn">Restaurar valores</button>
+      </div>
+      <div class="config-status" id="cfgStatus"></div>
+    </div>
+
+    <!-- SECTION 4: AYUDA -->
+    <div id="section-ayuda" class="page-section">
+      <div class="help-layout">
+        <nav class="help-nav">
+          <button class="help-nav-btn active" data-topic="general">Vista general</button>
+          <button class="help-nav-btn" data-topic="dashboard">Dashboard</button>
+          <button class="help-nav-btn" data-topic="controles">Controles</button>
+          <button class="help-nav-btn" data-topic="historico">Histórico</button>
+          <button class="help-nav-btn" data-topic="hardware">Hardware</button>
+          <button class="help-nav-btn" data-topic="mqtt">MQTT</button>
+          <button class="help-nav-btn" data-topic="api">API REST</button>
+          <button class="help-nav-btn" data-topic="troubleshoot">Solución de problemas</button>
+        </nav>
+
+        <div class="help-content">
+          <!-- General -->
+          <div class="help-topic active" id="help-general">
+            <h3>💧 IoT Campus — Sistema de Telemetría</h3>
+            <p>Este dashboard SCADA permite monitorear y controlar en tiempo real el nivel de agua de un tanque equipado con un microcontrolador ESP32.</p>
+            <p>El sistema utiliza:</p>
+            <ul>
+              <li><strong>ESP32</strong> con sensor ultrasónico JSN-SR04T para medir el nivel.</li>
+              <li><strong>MQTT</strong> (Mosquitto) para comunicación en tiempo real.</li>
+              <li><strong>FastAPI</strong> como backend para almacenar datos y servir la API REST.</li>
+              <li><strong>SQLite</strong> como base de datos para el historial de telemetría.</li>
+            </ul>
+            <p><strong>Puertos del sistema:</strong></p>
+            <dl class="key-val">
+              <dt>MQTT Broker</dt><dd>Puerto 1883 (TCP)</dd>
+              <dt>MQTT WebSocket</dt><dd>Puerto 9001</dd>
+              <dt>Backend FastAPI</dt><dd>Puerto 8000 (HTTP)</dd>
+              <dt>Dashboard</dt><dd>Puerto 8000 (servido estáticamente)</dd>
+            </dl>
+          </div>
+
+          <!-- Dashboard -->
+          <div class="help-topic" id="help-dashboard">
+            <h3>📊 Panel principal</h3>
+            <p>El dashboard muestra los datos del tanque actualizados en tiempo real vía MQTT:</p>
+            <ul>
+              <li><strong>Tanque visual:</strong> representación SVG animada con nivel de agua, burbujas y colores según el porcentaje (rojo &lt;20%, cyan normal, verde &gt;85%).</li>
+              <li><strong>Métricas:</strong> cuatro tarjetas con nivel (%), cota (cm), distancia del sensor (cm) y estado de la bomba.</li>
+              <li><strong>Gráfico histórico:</strong> gráfica con Chart.js que muestra la evolución del nivel y el estado de la bomba.</li>
+              <li><strong>Estado del sistema:</strong> indicadores de conexión MQTT, API, cantidad de mensajes recibidos y uptime.</li>
+              <li><strong>Registro de eventos:</strong> log en tiempo real de todas las acciones y mensajes.</li>
+            </ul>
+          </div>
+
+          <!-- Controles -->
+          <div class="help-topic" id="help-controles">
+            <h3>🎛️ Controles</h3>
+            <p>El panel de controles permite operar la bomba de agua:</p>
+            <ul>
+              <li><strong>Modo de operación:</strong> alterna entre AUTO y MANUAL con el toggle switch.</li>
+              <li><strong>Modo AUTO:</strong> la bomba se enciende automáticamente cuando el nivel baja del 20% y se apaga al llegar al 85%. El botón de bomba se deshabilita.</li>
+              <li><strong>Modo MANUAL:</strong> el botón "Encender/Apagar" se activa para controlar la bomba remotamente.</li>
+            </ul>
+            <p>Los comandos se envían por MQTT al topic:</p>
+            <div class="code-block">campus/tanque1/comando</div>
+            <p>Formato del mensaje de cambio de modo:</p>
+            <div class="code-block">{"modo": "AUTO"} o {"modo": "MANUAL"}</div>
+            <p>Formato del mensaje de control de bomba:</p>
+            <div class="code-block">{"bomba": "ON"} o {"bomba": "OFF"}</div>
+          </div>
+
+          <!-- Histórico -->
+          <div class="help-topic" id="help-historico">
+            <h3>📋 Histórico</h3>
+            <p>La sección de histórico consulta los registros almacenados en la base de datos SQLite a través de la API REST.</p>
+            <ul>
+              <li><strong>Filtros:</strong> puedes filtrar por cantidad de registros y estado de bomba.</li>
+              <li><strong>Exportar CSV:</strong> descarga los datos visibles como archivo CSV para análisis externo.</li>
+              <li><strong>Tabla:</strong> muestra ID, fecha/hora, nivel, cota, distancia, estado de bomba y modo.</li>
+            </ul>
+          </div>
+
+          <!-- Hardware -->
+          <div class="help-topic" id="help-hardware">
+            <h3>🔧 Hardware</h3>
+            <p>Conexiones del ESP32:</p>
+            <dl class="key-val">
+              <dt>JSN-SR04T TRIG</dt><dd>GPIO 12</dd>
+              <dt>JSN-SR04T ECHO</dt><dd>GPIO 14</dd>
+              <dt>LCD I2C SDA</dt><dd>GPIO 21 (addr 0x27)</dd>
+              <dt>LCD I2C SCL</dt><dd>GPIO 22</dd>
+              <dt>Relé 5V (IN)</dt><dd>GPIO 26 (activo en LOW)</dd>
+            </dl>
+            <p><strong>Parámetros del tanque:</strong></p>
+            <dl class="key-val">
+              <dt>Distancia vacío</dt><dd>200 cm</dd>
+              <dt>Distancia lleno</dt><dd>25 cm (zona ciega)</dd>
+              <dt>Rango útil</dt><dd>175 cm</dd>
+              <dt>Histéresis</dt><dd>20% (bajo) – 85% (alto)</dd>
+            </dl>
+          </div>
+
+          <!-- MQTT -->
+          <div class="help-topic" id="help-mqtt">
+            <h3>📡 MQTT</h3>
+            <p>El broker Mosquitto debe estar configurado con un listener WebSocket:</p>
+            <div class="code-block">listener 1883
+protocol mqtt
+
+listener 9001
+protocol websockets
+
+allow_anonymous true</div>
+            <p><strong>Topics utilizados:</strong></p>
+            <dl class="key-val">
+              <dt>Telemetría</dt><dd><code>campus/tanque1/telemetria</code></dd>
+              <dt>Comandos</dt><dd><code>campus/tanque1/comando</code></dd>
+            </dl>
+            <p>Ejemplo de payload de telemetría:</p>
+            <div class="code-block">{
+  "porcentaje": 45.2,
+  "cota_cm": 79.1,
+  "distancia_cm": 120.9,
+  "bomba": false,
+  "modo": "AUTO"
+}</div>
+          </div>
+
+          <!-- API REST -->
+          <div class="help-topic" id="help-api">
+            <h3>🔌 API REST</h3>
+            <p>El backend FastAPI expone los siguientes endpoints:</p>
+            <dl class="key-val">
+              <dt>GET /api/historial</dt><dd>Últimos N registros (?limit=100)</dd>
+              <dt>GET /api/ultimo</dt><dd>Última lectura registrada</dd>
+              <dt>GET /api/health</dt><dd>Health check del servicio</dd>
+              <dt>GET /docs</dt><dd>Documentación Swagger auto-generada</dd>
+            </dl>
+            <p>Ejemplo de prueba con curl:</p>
+            <div class="code-block">curl http://localhost:8000/api/historial?limit=10</div>
+          </div>
+
+          <!-- Troubleshoot -->
+          <div class="help-topic" id="help-troubleshoot">
+            <h3>🔍 Solución de problemas</h3>
+            <p><strong>MQTT no conecta (WebSocket):</strong></p>
+            <ul>
+              <li>Verificar que Mosquitto tiene el listener WebSocket en puerto 9001.</li>
+              <li>Verificar que el servicio Mosquitto está corriendo con la configuración correcta.</li>
+              <li>Si usas firewall, asegurar que los puertos 1883 y 9001 estén abiertos.</li>
+            </ul>
+            <p><strong>No llegan datos al dashboard:</strong></p>
+            <ul>
+              <li>Confirmar que el ESP32 está conectado al Wi-Fi y publicando al topic correcto.</li>
+              <li>Probar con: <code>mosquitto_sub -h localhost -t "campus/tanque1/telemetria"</code></li>
+            </ul>
+            <p><strong>API no responde:</strong></p>
+            <ul>
+              <li>Verificar que el backend está corriendo: <code>python server.py</code></li>
+              <li>Probar: <code>curl http://localhost:8000/api/health</code></li>
+            </ul>
+            <p><strong>Simular datos sin hardware:</strong></p>
+            <div class="code-block">mosquitto_pub -h localhost -t "campus/tanque1/telemetria" -m '{"porcentaje":45.2,"cota_cm":79.1,"distancia_cm":120.9,"bomba":false,"modo":"AUTO"}'</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+  </div><!-- /shell -->
+
+  <!-- Toast container -->
+  <div class="toast-container" id="toastContainer"></div>
+
+
+  <!-- ═══════════════════════════════════════════════════════════════
+       LOGIC
+       ═══════════════════════════════════════════════════════════════ -->
+  <script>
+  (function () {
+    'use strict';
+
+    /* ── CONFIG ──────────────────────────────────────────────── */
+    const CFG = {
+      mqttHost:  location.hostname === 'localhost' ? '127.0.0.1' : (location.hostname || '127.0.0.1'),
+      mqttPort:  9001,
+      topicTelem: 'campus/tanque1/telemetria',
+      topicCmd:   'campus/tanque1/comando',
+      apiBase:    `http://${location.hostname || 'localhost'}:8000`,
+      historyLimit: 100,
+    };
+
+    /* ── STATE ───────────────────────────────────────────────── */
+    const state = {
+      porcentaje: 0, cota_cm: 0, distancia_cm: 0,
+      bomba: false, modo: 'AUTO',
+    };
+
+    let prevPct = null;
+    let prevCota = null;
+    let prevDist = null;
+    let mqttOk = false;
+    let msgCount = 0;
+    const startTime = Date.now();
+
+    /* ── DOM ─────────────────────────────────────────────────── */
+    const $ = id => document.getElementById(id);
+
+    /* ── HELPERS ─────────────────────────────────────────────── */
+    function fmt(n, d = 1) { return Number(n).toFixed(d); }
+
+    function now() {
+      const d = new Date();
+      return d.toLocaleTimeString('es-AR', { hour12: false });
+    }
+
+    function elapsed(ms) {
+      const s = Math.floor(ms / 1000);
+      if (s < 60) return s + 's';
+      if (s < 3600) return Math.floor(s / 60) + 'm';
+      return Math.floor(s / 3600) + 'h ' + Math.floor((s % 3600) / 60) + 'm';
+    }
+
+    /* ── TOASTS ──────────────────────────────────────────────── */
+    function toast(msg, type = 'info') {
+      const el = document.createElement('div');
+      el.className = `toast t-${type}`;
+      const icons = {
+        info:    '<svg viewBox="0 0 24 24"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-6h2v6zm0-8h-2V7h2v2z"/></svg>',
+        success: '<svg viewBox="0 0 24 24"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 15l-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z"/></svg>',
+        warning: '<svg viewBox="0 0 24 24"><path d="M1 21h22L12 2 1 21zm12-3h-2v-2h2v2zm0-4h-2v-4h2v4z"/></svg>',
+        error:   '<svg viewBox="0 0 24 24"><path d="M12 2C6.47 2 2 6.47 2 12s4.47 10 10 10 10-4.47 10-10S17.53 2 12 2zm5 13.59L15.59 17 12 13.41 8.41 17 7 15.59 10.59 12 7 8.41 8.41 7 12 10.59 15.59 7 17 8.41 13.41 12 17 15.59z"/></svg>',
+      };
+      el.innerHTML = (icons[type] || icons.info) + `<span>${msg}</span>`;
+      $('toastContainer').appendChild(el);
+      setTimeout(() => {
+        el.classList.add('toast-exit');
+        el.addEventListener('animationend', () => el.remove());
+      }, 4000);
+    }
+
+    /* ── EVENT LOG ────────────────────────────────────────────── */
+    const MAX_LOG = 80;
+
+    function addLog(msg, cls = '') {
+      const body = $('logBody');
+      const entry = document.createElement('div');
+      entry.className = 'log-entry';
+      entry.innerHTML = `<span class="log-time">${now()}</span><span class="log-msg ${cls}">${msg}</span>`;
+      body.prepend(entry);
+      // trim old entries
+      while (body.children.length > MAX_LOG) body.lastChild.remove();
+    }
+
+    /* ── CLOCK ────────────────────────────────────────────────── */
+    function tickClock() {
+      $('clock').textContent = now();
+      $('sysUptime').textContent = elapsed(Date.now() - startTime);
+      $('sysMsgCount').textContent = msgCount;
+    }
+    setInterval(tickClock, 1000);
+    tickClock();
+
+    /* ── TREND ARROWS ────────────────────────────────────────── */
+    function setTrend(elId, prev, curr) {
+      const el = $(elId);
+      if (prev === null) {
+        el.className = 'metric-trend trend-flat';
+        el.querySelector('span').textContent = 'sin datos';
+        return;
+      }
+      const diff = curr - prev;
+      if (Math.abs(diff) < 0.2) {
+        el.className = 'metric-trend trend-flat';
+        el.innerHTML = '<svg viewBox="0 0 24 24"><path d="M22 12l-4-4v3H3v2h15v3z"/></svg><span>estable</span>';
+      } else if (diff > 0) {
+        el.className = 'metric-trend trend-up';
+        el.innerHTML = '<svg viewBox="0 0 24 24"><path d="M7 14l5-5 5 5z"/></svg><span>+' + fmt(diff) + '</span>';
+      } else {
+        el.className = 'metric-trend trend-down';
+        el.innerHTML = '<svg viewBox="0 0 24 24"><path d="M7 10l5 5 5-5z"/></svg><span>' + fmt(diff) + '</span>';
+      }
+    }
+
+    /* ════════════════════════════════════════════════════════════
+       RENDER UI
+       ════════════════════════════════════════════════════════════ */
+    function render() {
+      const d = state;
+      const pct = Math.max(0, Math.min(100, d.porcentaje));
+
+      // ── Tank ──
+      $('tankPct').textContent = fmt(pct);
+
+      // Water rect: y goes 272 (0%) → 12 (100%)
+      const waterY = 272 - (pct / 100) * 260;
+      $('waterBody').setAttribute('y', waterY);
+      // Wave group positioned at water surface
+      $('waveGroup').setAttribute('transform', `translate(0, ${waterY - 4})`);
+
+      // Water color shift
+      const s1 = $('wStop1'), s2 = $('wStop2');
+      if (pct <= 20) {
+        s1.setAttribute('stop-color', 'hsl(0 72% 56%)');
+        s2.setAttribute('stop-color', 'hsl(20 80% 44%)');
+      } else if (pct >= 85) {
+        s1.setAttribute('stop-color', 'hsl(152 60% 52%)');
+        s2.setAttribute('stop-color', 'hsl(170 50% 38%)');
+      } else {
+        s1.setAttribute('stop-color', 'hsl(185 72% 52%)');
+        s2.setAttribute('stop-color', 'hsl(210 100% 50%)');
+      }
+
+      // ── Readouts ──
+      $('rCota').textContent = fmt(d.cota_cm) + ' cm';
+      $('rDist').textContent = fmt(d.distancia_cm) + ' cm';
+      $('rModo').textContent = d.modo === 'AUTO' ? 'Automático' : 'Manual';
+
+      // ── Metrics ──
+      $('mvNivel').innerHTML = fmt(pct) + '<span class="metric-unit">%</span>';
+      $('mvCota').innerHTML  = fmt(d.cota_cm) + '<span class="metric-unit">cm</span>';
+      $('mvDist').innerHTML  = fmt(d.distancia_cm) + '<span class="metric-unit">cm</span>';
+
+      setTrend('mtNivel', prevPct, pct);
+      setTrend('mtCota', prevCota, d.cota_cm);
+      setTrend('mtDist', prevDist, d.distancia_cm);
+
+      prevPct  = pct;
+      prevCota = d.cota_cm;
+      prevDist = d.distancia_cm;
+
+      // Bomba
+      $('mvBomba').textContent = d.bomba ? 'ON' : 'OFF';
+      $('mvBomba').style.color = d.bomba ? 'var(--green)' : 'var(--t3)';
+      $('mBomba').style.borderColor = d.bomba ? 'hsl(152 40% 24%)' : 'var(--border)';
+
+      // ── Controls ──
+      const isAuto = d.modo === 'AUTO';
+      $('modeToggle').checked = isAuto;
+      $('ctrlModeDesc').textContent = isAuto
+        ? 'Automático · histéresis 20%–85%'
+        : 'Manual · control remoto';
+
+      const btn = $('pumpBtn');
+      if (isAuto) {
+        btn.disabled = true;
+        btn.textContent = 'Auto';
+        btn.className = 'btn-pump is-off';
+        $('ctrlPumpDesc').textContent = 'Control automático';
+      } else {
+        btn.disabled = false;
+        btn.textContent = d.bomba ? 'Apagar' : 'Encender';
+        btn.className = 'btn-pump ' + (d.bomba ? 'is-on' : 'is-off');
+        $('ctrlPumpDesc').textContent = d.bomba ? 'Encendida · modo manual' : 'Apagada · modo manual';
+      }
+    }
+
+    /* ════════════════════════════════════════════════════════════
+       MQTT
+       ════════════════════════════════════════════════════════════ */
+    const clientId = 'dash_' + Math.random().toString(36).slice(2, 8);
+    let mqtt = null;
+    let mqttRetryDelay = 5000;
+    const MQTT_MAX_RETRY = 60000;
+
+    function createMqttClient() {
+      if (typeof Paho === 'undefined' || !Paho.Client) {
+        addLog('Librería Paho MQTT no disponible, reintentando…', 'warn');
+        return null;
+      }
+      const client = new Paho.Client(CFG.mqttHost, CFG.mqttPort, "/mqtt", clientId);
+
+      client.onConnectionLost = function (r) {
+        mqttOk = false;
+        setConn(false);
+        if (r.errorCode !== 0) {
+          addLog('Conexión MQTT perdida: ' + (r.errorMessage || 'desconocido'), 'error');
+        }
+        mqtt = null;
+        scheduleReconnect();
+      };
+
+      client.onMessageArrived = function (m) {
+        const base = CFG.topicTelem.replace(/\/[^/]*$/, '');
+        // Estado online/offline del ESP32 (retenido + Last Will)
+        if (m.destinationName === base + '/estado') {
+          const st = m.payloadString.trim();
+          if (st === 'offline') {
+            addLog('ESP32 OFFLINE (Last Will): el equipo perdió la conexión', 'error');
+            toast('ESP32 sin conexión (offline)', 'error');
+          } else if (st === 'online') {
+            addLog('ESP32 online', 'success');
+          } else {
+            addLog('Estado desconocido del ESP32: ' + st, 'warn');
+          }
+          return;
+        }
+        // Alertas instantáneas (falla / recuperación del sensor)
+        if (m.destinationName === base + '/alerta') {
+          try {
+            const a = JSON.parse(m.payloadString);
+            if (a.tipo === 'sensor_fault' && a.estado === true) {
+              addLog('ALERTA: sensor ultrasónico en falla — lecturas no confiables', 'error');
+              toast('Falla del sensor de nivel', 'error');
+            } else if (a.tipo === 'sensor_fault' && a.estado === false) {
+              addLog('Sensor ultrasónico recuperado', 'success');
+              toast('Sensor de nivel recuperado', 'success');
+            } else {
+              addLog('Alerta recibida: ' + m.payloadString, 'warn');
+            }
+          } catch (e) {
+            addLog('Alerta con payload inválido: ' + e.message, 'warn');
+          }
+          return;
+        }
+        try {
+          const data = JSON.parse(m.payloadString);
+          if (data.sensor_fault === true && state.sensor_fault !== true) {
+            addLog('Telemetría con sensor_fault=true: se muestra la última lectura válida', 'warn');
+          }
+          Object.assign(state, data);
+          msgCount++;
+          render();
+        } catch (e) {
+          addLog('Payload inválido: ' + e.message, 'warn');
+        }
+      };
+
+      return client;
+    }
+
+    function scheduleReconnect() {
+      setTimeout(mqttConnect, mqttRetryDelay);
+      mqttRetryDelay = Math.min(mqttRetryDelay * 2, MQTT_MAX_RETRY);
+    }
+
+    function mqttConnect() {
+      // Recreate client each attempt to avoid stale WebSocket state
+      mqtt = createMqttClient();
+      if (!mqtt) {
+        scheduleReconnect();
+        return;
+      }
+      addLog('Conectando MQTT a ' + CFG.mqttHost + ':' + CFG.mqttPort + '…');
+      try {
+        mqtt.connect({
+          onSuccess() {
+            mqttOk = true;
+            mqttRetryDelay = 5000; // Reset backoff on success
+            setConn(true);
+            mqtt.subscribe(CFG.topicTelem);
+            const base = CFG.topicTelem.replace(/\/[^/]*$/, '');
+            mqtt.subscribe(base + '/estado', { qos: 1 });
+            mqtt.subscribe(base + '/alerta');
+            addLog('MQTT conectado y suscrito', 'success');
+            toast('Conexión MQTT establecida', 'success');
+          },
+          onFailure(e) {
+            addLog('MQTT falló: ' + (e.errorMessage || 'broker no disponible') + ' — reintento en ' + (mqttRetryDelay / 1000) + 's', 'warn');
+            mqtt = null;
+            scheduleReconnect();
+          },
+          keepAliveInterval: 30,
+          reconnect: false,
+        });
+      } catch (ex) {
+        // Suppress synchronous errors from Paho (e.g. WebSocket constructor failure)
+        addLog('MQTT error: ' + ex.message + ' — reintento en ' + (mqttRetryDelay / 1000) + 's', 'warn');
+        mqtt = null;
+        scheduleReconnect();
+      }
+    }
+
+    function sendCmd(payload) {
+      if (!mqttOk || !mqtt) return;
+      const m = new Paho.Message(JSON.stringify(payload));
+      m.destinationName = CFG.topicCmd;
+      mqtt.send(m);
+      addLog('Comando enviado: ' + JSON.stringify(payload), 'info');
+    }
+
+    function setConn(ok) {
+      const b = $('connBadge');
+      b.className = 'conn-badge ' + (ok ? 'online' : 'offline');
+      $('connText').textContent = ok ? 'En línea' : 'Sin conexión';
+      $('sysMqtt').textContent  = ok ? 'Online' : 'Offline';
+      $('sysMqtt').className    = 'sys-card-value ' + (ok ? 'sys-ok' : 'sys-err');
+    }
+
+    /* ════════════════════════════════════════════════════════════
+       CONTROLS
+       ════════════════════════════════════════════════════════════ */
+    $('modeToggle').addEventListener('change', function () {
+      if (!mqttOk) {
+        toast('Sin conexión MQTT — no se puede cambiar el modo', 'error');
+        this.checked = state.modo === 'AUTO';
+        return;
+      }
+      const modo = this.checked ? 'AUTO' : 'MANUAL';
+      sendCmd({ modo });
+      addLog('Modo cambiado a ' + modo, 'info');
+      toast('Modo → ' + modo, 'info');
+    });
+
+    $('pumpBtn').addEventListener('click', function () {
+      if (state.modo === 'AUTO') {
+        toast('Cambia a modo MANUAL para controlar la bomba', 'warning');
+        return;
+      }
+      if (!mqttOk) {
+        toast('Sin conexión MQTT — no se puede controlar la bomba', 'error');
+        return;
+      }
+      const cmd = state.bomba ? 'OFF' : 'ON';
+      sendCmd({ bomba: cmd });
+      addLog('Bomba → ' + cmd, 'info');
+      toast('Comando bomba: ' + cmd, cmd === 'ON' ? 'success' : 'warning');
+    });
+
+    /* ════════════════════════════════════════════════════════════
+       CHART
+       ════════════════════════════════════════════════════════════ */
+    let chart = null;
+
+    function initChart() {
+      const ctx = $('chartCanvas').getContext('2d');
+
+      const gridColor = 'rgba(255,255,255,.04)';
+
+      chart = new Chart(ctx, {
+        type: 'line',
+        data: {
+          labels: [],
+          datasets: [
+            {
+              label: 'Nivel (%)',
+              data: [],
+              borderColor: 'hsl(210 100% 62%)',
+              backgroundColor: 'hsla(210 100% 62% / .06)',
+              fill: true,
+              tension: 0.3,
+              pointRadius: 0,
+              pointHitRadius: 6,
+              borderWidth: 2,
+            },
+            {
+              label: 'Bomba',
+              data: [],
+              borderColor: 'hsl(152 60% 48%)',
+              fill: false,
+              stepped: 'before',
+              pointRadius: 0,
+              borderWidth: 1.2,
+              borderDash: [5, 3],
+            },
+          ],
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          animation: { duration: 400 },
+          interaction: { intersect: false, mode: 'index' },
+          plugins: {
+            legend: {
+              labels: {
+                color: 'hsl(215 14% 48%)',
+                font: { family: 'IBM Plex Sans', size: 11 },
+                boxWidth: 12, boxHeight: 2,
+                usePointStyle: false,
+              },
+            },
+            tooltip: {
+              backgroundColor: 'hsl(215 24% 10%)',
+              titleColor: 'hsl(215 20% 88%)',
+              bodyColor: 'hsl(215 14% 60%)',
+              borderColor: 'hsl(215 16% 22%)',
+              borderWidth: 1,
+              cornerRadius: 6,
+              padding: 10,
+              titleFont: { family: 'IBM Plex Mono', size: 11 },
+              bodyFont: { family: 'IBM Plex Sans', size: 12 },
+            },
+          },
+          scales: {
+            x: {
+              type: 'time',
+              time: {
+                tooltipFormat: 'dd/MM HH:mm:ss',
+                displayFormats: { minute: 'HH:mm', hour: 'HH:mm' },
+              },
+              ticks: {
+                color: 'hsl(215 12% 38%)',
+                font: { family: 'IBM Plex Mono', size: 10 },
+                maxTicksLimit: 8,
+              },
+              grid: { color: gridColor },
+            },
+            y: {
+              min: 0, max: 105,
+              ticks: {
+                color: 'hsl(215 12% 38%)',
+                font: { family: 'IBM Plex Mono', size: 10 },
+                callback: v => v + '%',
+                stepSize: 25,
+              },
+              grid: { color: gridColor },
+            },
+          },
+        },
+      });
+    }
+
+    async function fetchHistory() {
+      try {
+        const r = await fetch(`${CFG.apiBase}/api/historial?limit=${CFG.historyLimit}`);
+        if (!r.ok) throw new Error('HTTP ' + r.status);
+        const json = await r.json();
+        const rows = json.registros.reverse();
+
+        chart.data.labels           = rows.map(r => new Date(r.fecha_hora));
+        chart.data.datasets[0].data = rows.map(r => r.porcentaje);
+        chart.data.datasets[1].data = rows.map(r => r.estado_bomba ? 100 : 0);
+        chart.update('none');
+
+        $('sysApi').textContent = 'Online';
+        $('sysApi').className   = 'sys-card-value sys-ok';
+        addLog(`Historial cargado: ${rows.length} registros`, 'success');
+      } catch (e) {
+        $('sysApi').textContent = 'Error';
+        $('sysApi').className   = 'sys-card-value sys-err';
+        addLog('API error: ' + e.message, 'warn');
+      }
+    }
+
+    async function fetchLastReading() {
+      try {
+        const r = await fetch(`${CFG.apiBase}/api/ultimo`);
+        if (!r.ok) return;
+        const json = await r.json();
+        if (json.registro) {
+          const reg = json.registro;
+          state.porcentaje   = reg.porcentaje ?? 0;
+          state.cota_cm      = reg.cota_cm ?? 0;
+          state.distancia_cm = reg.distancia_cm ?? 0;
+          state.bomba        = reg.estado_bomba ?? false;
+          state.modo         = reg.modo_operacion ?? 'AUTO';
+          render();
+          addLog('Última lectura cargada desde API', 'success');
+        }
+      } catch (e) { /* ignore, fetchHistory already handles API errors */ }
+    }
+
+    // Chart range buttons
+    document.querySelectorAll('.chart-range-btn[data-limit]').forEach(btn => {
+      btn.addEventListener('click', function () {
+        document.querySelectorAll('.chart-range-btn[data-limit]').forEach(b => b.classList.remove('active'));
+        this.classList.add('active');
+        CFG.historyLimit = parseInt(this.dataset.limit);
+        fetchHistory();
+      });
+    });
+
+    /* ════════════════════════════════════════════════════════════
+       HISTÓRICO — Data Table
+       ════════════════════════════════════════════════════════════ */
+    let histData = [];
+
+    async function loadHistorico() {
+      const limit = parseInt($('histLimit').value) || 100;
+      try {
+        const r = await fetch(`${CFG.apiBase}/api/historial?limit=${limit}`);
+        if (!r.ok) throw new Error('HTTP ' + r.status);
+        const json = await r.json();
+        histData = json.registros || [];
+        renderHistTable();
+        toast('Historial cargado: ' + histData.length + ' registros', 'success');
+      } catch (e) {
+        toast('Error al cargar historial: ' + e.message, 'error');
+        $('histTableBody').innerHTML = '<tr><td colspan="7" style="text-align:center;color:var(--red);padding:30px;">Error: ' + e.message + '</td></tr>';
+      }
+    }
+
+    function renderHistTable() {
+      const filterBomba = $('histFilterBomba').value;
+
+      let filtered = histData.filter(r => {
+        if (filterBomba === 'on' && !r.estado_bomba) return false;
+        if (filterBomba === 'off' && r.estado_bomba) return false;
+        return true;
+      });
+
+      if (filtered.length === 0) {
+        $('histTableBody').innerHTML = '<tr><td colspan="7" style="text-align:center;color:var(--t3);padding:30px;">No hay datos que coincidan con los filtros.</td></tr>';
+        $('histSummary').innerHTML = '';
+        return;
+      }
+
+      $('histTableBody').innerHTML = filtered.map(r => {
+        const bombaClass = r.estado_bomba ? 'badge-on' : 'badge-off';
+        const bombaText  = r.estado_bomba ? 'ON' : 'OFF';
+        const modoClass  = r.modo_operacion === 'AUTO' ? 'badge-auto' : 'badge-manual';
+        return `<tr>
+          <td>${r.id}</td>
+          <td>${r.fecha_hora || '—'}</td>
+          <td>${Number(r.porcentaje).toFixed(1)}</td>
+          <td>${Number(r.cota_cm).toFixed(1)}</td>
+          <td>${Number(r.distancia_cm).toFixed(1)}</td>
+          <td><span class="badge ${bombaClass}">${bombaText}</span></td>
+          <td><span class="badge ${modoClass}">${r.modo_operacion}</span></td>
+        </tr>`;
+      }).join('');
+
+      const avgPct = filtered.reduce((s, r) => s + r.porcentaje, 0) / filtered.length;
+      const onCount = filtered.filter(r => r.estado_bomba).length;
+      $('histSummary').innerHTML = `
+        Mostrando <span>${filtered.length}</span> de ${histData.length} registros · 
+        Nivel promedio: <span>${avgPct.toFixed(1)}%</span> · 
+        Bomba ON: <span>${onCount}</span>
+      `;
+    }
+
+    function exportCSV() {
+      if (histData.length === 0) {
+        toast('No hay datos para exportar', 'warning');
+        return;
+      }
+      const header = 'ID,Fecha,Nivel(%),Cota(cm),Distancia(cm),Bomba,Modo';
+      const rows = histData.map(r => [
+        r.id, r.fecha_hora, r.porcentaje, r.cota_cm, r.distancia_cm,
+        r.estado_bomba ? 'ON' : 'OFF', r.modo_operacion
+      ].join(','));
+      const csv = [header, ...rows].join('\n');
+      const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = 'historial_tanque_' + new Date().toISOString().slice(0, 10) + '.csv';
+      a.click();
+      URL.revokeObjectURL(url);
+      toast('CSV exportado', 'success');
+    }
+
+    /* ════════════════════════════════════════════════════════════
+       CONFIGURACIÓN — Settings Management
+       ════════════════════════════════════════════════════════════ */
+    const STORAGE_KEY = 'iot_campus_config';
+
+    function loadConfig() {
+      // Fill fields from current CFG values
+      $('cfgMqttHost').value     = CFG.mqttHost;
+      $('cfgMqttPort').value     = CFG.mqttPort;
+      $('cfgTopicTelem').value   = CFG.topicTelem;
+      $('cfgTopicCmd').value     = CFG.topicCmd;
+      $('cfgApiBase').value      = CFG.apiBase;
+      $('cfgRefreshInterval').value = 30;
+      $('cfgHistoryLimit').value = CFG.historyLimit;
+
+      // Try to load saved config from localStorage
+      try {
+        const saved = JSON.parse(localStorage.getItem(STORAGE_KEY));
+        if (saved) {
+          if (saved.mqttHost)     $('cfgMqttHost').value     = saved.mqttHost;
+          if (saved.mqttPort)     $('cfgMqttPort').value     = saved.mqttPort;
+          if (saved.topicTelem)   $('cfgTopicTelem').value   = saved.topicTelem;
+          if (saved.topicCmd)     $('cfgTopicCmd').value     = saved.topicCmd;
+          if (saved.apiBase)      $('cfgApiBase').value      = saved.apiBase;
+          if (saved.refreshInterval) $('cfgRefreshInterval').value = saved.refreshInterval;
+          if (saved.historyLimit) $('cfgHistoryLimit').value = saved.historyLimit;
+          if (saved.umbralBajo)   $('cfgUmbralBajo').value   = saved.umbralBajo;
+          if (saved.umbralAlto)   $('cfgUmbralAlto').value   = saved.umbralAlto;
+          if (saved.distVacio)    $('cfgDistVacio').value    = saved.distVacio;
+          if (saved.distLleno)    $('cfgDistLleno').value    = saved.distLleno;
+          if (saved.maxLog)       $('cfgMaxLog').value       = saved.maxLog;
+          if (saved.decimals !== undefined) $('cfgDecimals').value = saved.decimals;
+        }
+      } catch (e) { /* ignore */ }
+    }
+
+    function saveConfig() {
+      const config = {
+        mqttHost:     $('cfgMqttHost').value,
+        mqttPort:     parseInt($('cfgMqttPort').value) || 9001,
+        topicTelem:   $('cfgTopicTelem').value,
+        topicCmd:     $('cfgTopicCmd').value,
+        apiBase:      $('cfgApiBase').value,
+        refreshInterval: parseInt($('cfgRefreshInterval').value) || 30,
+        historyLimit: parseInt($('cfgHistoryLimit').value) || 100,
+        umbralBajo:   parseInt($('cfgUmbralBajo').value) || 20,
+        umbralAlto:   parseInt($('cfgUmbralAlto').value) || 85,
+        distVacio:    parseInt($('cfgDistVacio').value) || 200,
+        distLleno:    parseInt($('cfgDistLleno').value) || 25,
+        maxLog:       parseInt($('cfgMaxLog').value) || 80,
+        decimals:     parseInt($('cfgDecimals').value) || 1,
+      };
+
+      // Apply to CFG
+      CFG.mqttHost     = config.mqttHost;
+      CFG.mqttPort     = config.mqttPort;
+      CFG.topicTelem   = config.topicTelem;
+      CFG.topicCmd     = config.topicCmd;
+      CFG.apiBase      = config.apiBase;
+      CFG.historyLimit = config.historyLimit;
+
+      // Save to localStorage
+      try {
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(config));
+      } catch (e) { /* ignore */ }
+
+      const status = $('cfgStatus');
+      status.textContent = '✓ Configuración guardada. Los cambios de conexión MQTT se aplicarán al recargar la página.';
+      status.className = 'config-status show ok';
+      toast('Configuración guardada', 'success');
+      addLog('Configuración actualizada', 'info');
+
+      setTimeout(() => { status.classList.remove('show'); }, 5000);
+    }
+
+    function resetConfig() {
+      localStorage.removeItem(STORAGE_KEY);
+      // Reset CFG to defaults
+      CFG.mqttHost     = location.hostname || 'localhost';
+      CFG.mqttPort     = 9001;
+      CFG.topicTelem   = 'campus/tanque1/telemetria';
+      CFG.topicCmd     = 'campus/tanque1/comando';
+      CFG.apiBase      = `http://${location.hostname || 'localhost'}:8000`;
+      CFG.historyLimit = 100;
+      loadConfig();
+
+      const status = $('cfgStatus');
+      status.textContent = '✓ Configuración restaurada a valores por defecto.';
+      status.className = 'config-status show ok';
+      toast('Configuración restaurada', 'info');
+
+      setTimeout(() => { status.classList.remove('show'); }, 4000);
+    }
+
+    /* ════════════════════════════════════════════════════════════
+       AYUDA — Topic Navigation
+       ════════════════════════════════════════════════════════════ */
+    function initHelp() {
+      document.querySelectorAll('.help-nav-btn').forEach(btn => {
+        btn.addEventListener('click', function () {
+          document.querySelectorAll('.help-nav-btn').forEach(b => b.classList.remove('active'));
+          this.classList.add('active');
+          document.querySelectorAll('.help-topic').forEach(t => t.classList.remove('active'));
+          const target = document.getElementById('help-' + this.dataset.topic);
+          if (target) target.classList.add('active');
+        });
+      });
+    }
+
+    /* ════════════════════════════════════════════════════════════
+       INIT
+       ════════════════════════════════════════════════════════════ */
+    document.addEventListener('DOMContentLoaded', () => {
+      // Load saved config from localStorage before connecting
+      try {
+        const saved = JSON.parse(localStorage.getItem(STORAGE_KEY));
+        if (saved) {
+          if (saved.mqttHost)     CFG.mqttHost     = saved.mqttHost;
+          if (saved.mqttPort)     CFG.mqttPort     = saved.mqttPort;
+          if (saved.topicTelem)   CFG.topicTelem   = saved.topicTelem;
+          if (saved.topicCmd)     CFG.topicCmd     = saved.topicCmd;
+          if (saved.apiBase)      CFG.apiBase      = saved.apiBase;
+          if (saved.historyLimit) CFG.historyLimit = saved.historyLimit;
+        }
+      } catch (e) { /* ignore */ }
+
+      initChart();
+      mqttConnect();
+      fetchHistory();
+      fetchLastReading();
+      setInterval(fetchHistory, 30000);
+
+      // Sidebar navigation
+      const sections = ['dashboard', 'historico', 'config', 'ayuda'];
+      const btns = document.querySelectorAll('.sidebar-btn');
+      btns.forEach((btn, index) => {
+        btn.addEventListener('click', function() {
+          btns.forEach(b => b.classList.remove('active'));
+          this.classList.add('active');
+          document.querySelectorAll('.page-section').forEach(sec => sec.classList.remove('active'));
+          if (sections[index]) {
+            const target = document.getElementById('section-' + sections[index]);
+            if (target) target.classList.add('active');
+          }
+        });
+      });
+
+      // Histórico
+      $('histLoadBtn').addEventListener('click', loadHistorico);
+      $('histExportBtn').addEventListener('click', exportCSV);
+      $('histFilterBomba').addEventListener('change', renderHistTable);
+
+      // Configuración
+      loadConfig();
+      $('cfgSaveBtn').addEventListener('click', saveConfig);
+      $('cfgResetBtn').addEventListener('click', resetConfig);
+
+      // Ayuda
+      initHelp();
+
+      addLog('Dashboard inicializado', 'info');
+    });
+
+  })();
+  </script>
+</body>
+</html>
