@@ -9,7 +9,7 @@ CREATE TABLE IF NOT EXISTS historial_tanque (
   id              INTEGER     PRIMARY KEY AUTOINCREMENT,
   fecha_hora      DATETIME    DEFAULT CURRENT_TIMESTAMP,   -- UTC
   porcentaje      REAL        NOT NULL,                    -- 0..100 %
-  cota_cm         REAL        NOT NULL,                    -- 0..175 cm
+  cota_cm         REAL        NOT NULL,                    -- 0..100 cm
   distancia_cm    REAL        NOT NULL,                    -- cm sensor → agua
   estado_bomba    BOOLEAN     NOT NULL DEFAULT 0,
   modo_operacion  VARCHAR(10) NOT NULL DEFAULT 'AUTO',     -- AUTO | MANUAL

@@ -164,6 +164,11 @@ def consultar(sql: str, params: tuple = ()) -> list[dict]:
     resultado = []
     for row in rows:
         r = dict(row)
+        # SQLite guarda CURRENT_TIMESTAMP en UTC sin zona ("2026-11-05 23:36:44").
+        # Se devuelve en ISO-8601 con "Z" para que el navegador lo convierta bien
+        # a la hora local (antes se mostraba corrida 3 h).
+        if r.get("fecha_hora"):
+            r["fecha_hora"] = str(r["fecha_hora"]).replace(" ", "T") + "Z"
         r["estado_bomba"] = bool(r.get("estado_bomba"))
         r["sensor_fault"] = bool(r.get("sensor_fault"))
         resultado.append(r)
