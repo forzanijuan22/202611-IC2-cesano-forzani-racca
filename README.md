@@ -11,8 +11,8 @@ Sistema de monitoreo y control del nivel de agua de un tanque con **ESP32**, **M
 | **Integrantes** | Juan Ignacio Forzani · Agustín Cesano · Alejo Racca |
 | **Universidad** | Universidad Nacional de Rafaela (UNRaf) |
 | **Materia** | IC2 |
-| **Comisión** | _(completar)_ |
-| **Trabajo** | TP Final — _(completar número/título oficial)_ |
+| **Comisión** | Única |
+| **Trabajo** | TP Final — Sistema de telemetría y control de nivel de agua. |
 
 ---
 
@@ -47,7 +47,6 @@ Fórmula: `nivel % = 120 − distancia (cm)`, recortado entre 0 y 100 (en el có
 | Maqueta del actuador | Dos frascos de ~30 cm unidos por una manguera | Muestran que la bomba funciona; **no** son el tanque medido (ver arriba) |
 | Alimentación | Dos puertos USB (5 V) de la PC | **USB 1:** el ESP32, que desde su pin 5V alimenta el riel de la protoboard (sensor y relé). **USB 2:** la bomba, a través del contacto del relé. Las masas se unen en la protoboard |
 | Adaptación de nivel | Divisor resistivo: R1 = 1 kΩ en serie desde ECHO, R2 = 2 kΩ a GND | Baja el ECHO de 5 V a 5 · 2/(1+2) ≈ 3,33 V para el GPIO14 |
-| Soporte | Pieza impresa diseñada en OpenSCAD | Mantiene el sensor perpendicular a la superficie |
 | Pulsador | Botón **BOOT** de la placa (GPIO 0) | Mantenido 3 s abre el portal de configuración Wi-Fi/broker |
 
 ---
