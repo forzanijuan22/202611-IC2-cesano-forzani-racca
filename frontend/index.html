@@ -1051,7 +1051,7 @@
                       fill="hsl(215 18% 20%)" stroke="hsl(215 12% 30%)" stroke-width=".8"/>
                 <text x="0" y="7" text-anchor="middle"
                       font-size="5" fill="hsl(215 12% 40%)" font-family="IBM Plex Mono">
-                  JSN-SR04T
+                  AJ-SR04M
                 </text>
               </g>
             </svg>
@@ -1071,6 +1071,14 @@
               <span class="readout-label">Modo operación</span>
               <span class="readout-val" id="rModo">—</span>
             </div>
+            <div class="readout">
+              <span class="readout-label">Sensor</span>
+              <span class="readout-val" id="rSensor">—</span>
+            </div>
+            <div class="readout">
+              <span class="readout-label">ESP32</span>
+              <span class="readout-val" id="rEquipo">—</span>
+            </div>
           </div>
         </div>
       </div>
@@ -1085,7 +1093,7 @@
           <div class="ctrl-row">
             <div class="ctrl-info">
               <span class="ctrl-title">Modo de operación</span>
-              <span class="ctrl-desc" id="ctrlModeDesc">Automático · 20%–85%</span>
+              <span class="ctrl-desc" id="ctrlModeDesc">Automático</span>
             </div>
             <label class="toggle" title="AUTO / MANUAL">
               <input type="checkbox" id="modeToggle" checked />
@@ -1318,23 +1326,27 @@
           </div>
           <div class="config-field">
             <label class="config-label">Umbral bajo (%)</label>
-            <input class="config-input" type="number" id="cfgUmbralBajo" value="20" min="0" max="100">
-            <span class="config-hint">Por debajo de este nivel se enciende la bomba (modo AUTO)</span>
+            <input class="config-input" type="number" id="cfgUmbralBajo" value="50" min="0" max="100" step="0.1">
+            <span class="config-hint">Al bajar a este nivel se APAGA la bomba (fin del vaciado, modo AUTO)</span>
           </div>
           <div class="config-field">
             <label class="config-label">Umbral alto (%)</label>
-            <input class="config-input" type="number" id="cfgUmbralAlto" value="85" min="0" max="100">
-            <span class="config-hint">Por encima de este nivel se apaga la bomba (modo AUTO)</span>
+            <input class="config-input" type="number" id="cfgUmbralAlto" value="95" min="0" max="100" step="0.1">
+            <span class="config-hint">Al llegar a este nivel se ENCIENDE la bomba (inicio del vaciado, modo AUTO)</span>
+          </div>
+          <div class="config-field">
+            <button class="config-save" id="cfgUmbralesBtn" type="button">Enviar umbrales al ESP32</button>
+            <span class="config-hint">Se muestran los valores actuales del ESP32. Se envían por MQTT y el ESP32 los valida (0–100 y bajo &lt; alto) y los guarda en su memoria.</span>
           </div>
           <div class="config-field">
             <label class="config-label">Distancia vacío (cm)</label>
-            <input class="config-input" type="number" id="cfgDistVacio" value="200" min="1">
-            <span class="config-hint">Distancia sensor → fondo cuando el tanque está vacío</span>
+            <input class="config-input" type="number" id="cfgDistVacio" value="120" min="1" readonly>
+            <span class="config-hint">Constante DIST_VACIO del firmware (solo informativo)</span>
           </div>
           <div class="config-field">
             <label class="config-label">Distancia lleno (cm)</label>
-            <input class="config-input" type="number" id="cfgDistLleno" value="25" min="1">
-            <span class="config-hint">Distancia sensor → superficie al 100%</span>
+            <input class="config-input" type="number" id="cfgDistLleno" value="20" min="1" readonly>
+            <span class="config-hint">Constante DIST_LLENO del firmware (solo informativo)</span>
           </div>
         </div>
 
@@ -1385,7 +1397,7 @@
             <p>Este dashboard SCADA permite monitorear y controlar en tiempo real el nivel de agua de un tanque equipado con un microcontrolador ESP32.</p>
             <p>El sistema utiliza:</p>
             <ul>
-              <li><strong>ESP32</strong> con sensor ultrasónico JSN-SR04T para medir el nivel.</li>
+              <li><strong>ESP32</strong> con sensor ultrasónico AJ-SR04M para medir el nivel.</li>
               <li><strong>MQTT</strong> (Mosquitto) para comunicación en tiempo real.</li>
               <li><strong>FastAPI</strong> como backend para almacenar datos y servir la API REST.</li>
               <li><strong>SQLite</strong> como base de datos para el historial de telemetría.</li>
@@ -1404,7 +1416,8 @@
             <h3>📊 Panel principal</h3>
             <p>El dashboard muestra los datos del tanque actualizados en tiempo real vía MQTT:</p>
             <ul>
-              <li><strong>Tanque visual:</strong> representación SVG animada con nivel de agua, burbujas y colores según el porcentaje (rojo &lt;20%, cyan normal, verde &gt;85%).</li>
+              <li><strong>Tanque visual:</strong> representación SVG animada con nivel de agua, burbujas y colores según el porcentaje (rojo &le;20%, cyan normal, verde &ge;85%).</li>
+              <li><strong>Sensor / ESP32:</strong> indican si la lectura es confiable (<code>sensor_fault</code>) y si el equipo está online u offline (Last Will). Así se distingue "sensor dañado" de "ESP32 sin red".</li>
               <li><strong>Métricas:</strong> cuatro tarjetas con nivel (%), cota (cm), distancia del sensor (cm) y estado de la bomba.</li>
               <li><strong>Gráfico histórico:</strong> gráfica con Chart.js que muestra la evolución del nivel y el estado de la bomba.</li>
               <li><strong>Estado del sistema:</strong> indicadores de conexión MQTT, API, cantidad de mensajes recibidos y uptime.</li>
@@ -1418,7 +1431,7 @@
             <p>El panel de controles permite operar la bomba de agua:</p>
             <ul>
               <li><strong>Modo de operación:</strong> alterna entre AUTO y MANUAL con el toggle switch.</li>
-              <li><strong>Modo AUTO:</strong> la bomba se enciende automáticamente cuando el nivel baja del 20% y se apaga al llegar al 85%. El botón de bomba se deshabilita.</li>
+              <li><strong>Modo AUTO:</strong> la bomba vacía el tanque: se enciende al llegar al umbral alto (95% por defecto, sensor a 25 cm) y se apaga al bajar al umbral bajo (50% por defecto, sensor a 70 cm). Si el sensor falla, la bomba se apaga por seguridad. El botón de bomba se deshabilita.</li>
               <li><strong>Modo MANUAL:</strong> el botón "Encender/Apagar" se activa para controlar la bomba remotamente.</li>
             </ul>
             <p>Los comandos se envían por MQTT al topic:</p>
@@ -1427,6 +1440,8 @@
             <div class="code-block">{"modo": "AUTO"} o {"modo": "MANUAL"}</div>
             <p>Formato del mensaje de control de bomba:</p>
             <div class="code-block">{"bomba": "ON"} o {"bomba": "OFF"}</div>
+            <p>Formato del mensaje de umbrales (desde Configuración):</p>
+            <div class="code-block">{"umbral_bajo": 50, "umbral_alto": 95}</div>
           </div>
 
           <!-- Histórico -->
@@ -1445,18 +1460,20 @@
             <h3>🔧 Hardware</h3>
             <p>Conexiones del ESP32:</p>
             <dl class="key-val">
-              <dt>JSN-SR04T TRIG</dt><dd>GPIO 12</dd>
-              <dt>JSN-SR04T ECHO</dt><dd>GPIO 14</dd>
-              <dt>LCD I2C SDA</dt><dd>GPIO 21 (addr 0x27)</dd>
-              <dt>LCD I2C SCL</dt><dd>GPIO 22</dd>
-              <dt>Relé 5V (IN)</dt><dd>GPIO 26 (activo en LOW)</dd>
+              <dt>AJ-SR04M TRIG</dt><dd>GPIO 12</dd>
+              <dt>AJ-SR04M ECHO</dt><dd>GPIO 14 (con divisor 1k/2k)</dd>
+              <dt>Relé 5V (IN)</dt><dd>GPIO 26 (activo en HIGH)</dd>
+              <dt>Bomba</dt><dd>Mini bomba sumergible 5 V, por el contacto NA del relé</dd>
+              <dt>Alimentación</dt><dd>ESP32 por USB 1 (y desde su 5V, sensor y relé); bomba por USB 2 (masas unidas)</dd>
+              <dt>Botón BOOT</dt><dd>GPIO 0 (3 s → portal Wi-Fi)</dd>
             </dl>
+            <p><strong>Prototipo:</strong> el nivel se simula variando la distancia del sensor a una superficie (120 cm = vacío, 20 cm = lleno; la bomba arranca a 25 cm). La bomba pasa agua entre dos frascos para mostrar el actuador.</p>
             <p><strong>Parámetros del tanque:</strong></p>
             <dl class="key-val">
-              <dt>Distancia vacío</dt><dd>200 cm</dd>
-              <dt>Distancia lleno</dt><dd>25 cm (zona ciega)</dd>
-              <dt>Rango útil</dt><dd>175 cm</dd>
-              <dt>Histéresis</dt><dd>20% (bajo) – 85% (alto)</dd>
+              <dt>Distancia vacío</dt><dd>120 cm</dd>
+              <dt>Distancia lleno</dt><dd>20 cm (límite de la zona ciega)</dd>
+              <dt>Rango útil</dt><dd>100 cm (nivel % = 120 − distancia)</dd>
+              <dt>Histéresis</dt><dd>50% / 70 cm (apaga) – 95% / 25 cm (enciende), ajustable</dd>
             </dl>
           </div>
 
@@ -1475,15 +1492,12 @@ allow_anonymous true</div>
             <dl class="key-val">
               <dt>Telemetría</dt><dd><code>campus/tanque1/telemetria</code></dd>
               <dt>Comandos</dt><dd><code>campus/tanque1/comando</code></dd>
+              <dt>Estado</dt><dd><code>campus/tanque1/estado</code> (online/offline)</dd>
+              <dt>Alertas</dt><dd><code>campus/tanque1/alerta</code></dd>
             </dl>
             <p>Ejemplo de payload de telemetría:</p>
-            <div class="code-block">{
-  "porcentaje": 45.2,
-  "cota_cm": 79.1,
-  "distancia_cm": 120.9,
-  "bomba": false,
-  "modo": "AUTO"
-}</div>
+            <div class="code-block">{"porcentaje":45.2,"cota_cm":45.2,"distancia_cm":74.8,"bomba":false,"modo":"AUTO","sensor_fault":false,"umbral_bajo":50.0,"umbral_alto":95.0}</div>
+            <p>El contrato completo está en el README (sección 6).</p>
           </div>
 
           <!-- API REST -->
@@ -1493,6 +1507,7 @@ allow_anonymous true</div>
             <dl class="key-val">
               <dt>GET /api/historial</dt><dd>Últimos N registros (?limit=100)</dd>
               <dt>GET /api/ultimo</dt><dd>Última lectura registrada</dd>
+              <dt>GET /api/estado</dt><dd>ESP32 online/offline y falla de sensor</dd>
               <dt>GET /api/health</dt><dd>Health check del servicio</dd>
               <dt>GET /docs</dt><dd>Documentación Swagger auto-generada</dd>
             </dl>
@@ -1516,11 +1531,12 @@ allow_anonymous true</div>
             </ul>
             <p><strong>API no responde:</strong></p>
             <ul>
-              <li>Verificar que el backend está corriendo: <code>python server.py</code></li>
+              <li>Verificar que el backend está corriendo: <code>docker compose ps</code> (o <code>python server.py</code> sin Docker)</li>
               <li>Probar: <code>curl http://localhost:8000/api/health</code></li>
             </ul>
             <p><strong>Simular datos sin hardware:</strong></p>
-            <div class="code-block">mosquitto_pub -h localhost -t "campus/tanque1/telemetria" -m '{"porcentaje":45.2,"cota_cm":79.1,"distancia_cm":120.9,"bomba":false,"modo":"AUTO"}'</div>
+            <div class="code-block">docker compose --profile sim up -d --build</div>
+            <p>o sin Docker: <code>python simulator/simulador_esp32.py --falla-cada 60</code></p>
           </div>
         </div>
       </div>
@@ -1553,6 +1569,8 @@ allow_anonymous true</div>
     const state = {
       porcentaje: 0, cota_cm: 0, distancia_cm: 0,
       bomba: false, modo: 'AUTO',
+      sensor_fault: null, umbral_bajo: null, umbral_alto: null,
+      equipo: 'desconocido',
     };
 
     let prevPct = null;
@@ -1697,8 +1715,18 @@ allow_anonymous true</div>
       const isAuto = d.modo === 'AUTO';
       $('modeToggle').checked = isAuto;
       $('ctrlModeDesc').textContent = isAuto
-        ? 'Automático · histéresis 20%–85%'
+        ? (d.umbral_alto != null
+            ? `Automático · vacía de ${fmt(d.umbral_alto)}% a ${fmt(d.umbral_bajo)}%`
+            : 'Automático')
         : 'Manual · control remoto';
+
+      // ── Sensor y equipo ──
+      const rs = $('rSensor');
+      rs.textContent = d.sensor_fault === null ? '—' : (d.sensor_fault ? 'FALLA' : 'OK');
+      rs.style.color = d.sensor_fault ? 'var(--red, #e5484d)' : '';
+      const re = $('rEquipo');
+      re.textContent = d.equipo === 'online' ? 'Online' : (d.equipo === 'offline' ? 'Offline' : '—');
+      re.style.color = d.equipo === 'offline' ? 'var(--red, #e5484d)' : '';
 
       const btn = $('pumpBtn');
       if (isAuto) {
@@ -1744,6 +1772,7 @@ allow_anonymous true</div>
         // Estado online/offline del ESP32 (retenido + Last Will)
         if (m.destinationName === base + '/estado') {
           const st = m.payloadString.trim();
+          if (st === 'online' || st === 'offline') { state.equipo = st; render(); }
           if (st === 'offline') {
             addLog('ESP32 OFFLINE (Last Will): el equipo perdió la conexión', 'error');
             toast('ESP32 sin conexión (offline)', 'error');
@@ -1758,6 +1787,7 @@ allow_anonymous true</div>
         if (m.destinationName === base + '/alerta') {
           try {
             const a = JSON.parse(m.payloadString);
+            if (a.tipo === 'sensor_fault' && typeof a.estado === 'boolean') { state.sensor_fault = a.estado; render(); }
             if (a.tipo === 'sensor_fault' && a.estado === true) {
               addLog('ALERTA: sensor ultrasónico en falla — lecturas no confiables', 'error');
               toast('Falla del sensor de nivel', 'error');
@@ -1778,6 +1808,12 @@ allow_anonymous true</div>
             addLog('Telemetría con sensor_fault=true: se muestra la última lectura válida', 'warn');
           }
           Object.assign(state, data);
+          state.equipo = 'online';
+          // Mostrar los umbrales reales del ESP32 (si el usuario no los está editando)
+          ['cfgUmbralBajo', 'cfgUmbralAlto'].forEach((id, i) => {
+            const v = i === 0 ? data.umbral_bajo : data.umbral_alto;
+            if (typeof v === 'number' && document.activeElement !== $(id)) $(id).value = v;
+          });
           msgCount++;
           render();
         } catch (e) {
@@ -1828,6 +1864,21 @@ allow_anonymous true</div>
         mqtt = null;
         scheduleReconnect();
       }
+    }
+
+    function enviarUmbrales() {
+      const bajo = Number($('cfgUmbralBajo').value);
+      const alto = Number($('cfgUmbralAlto').value);
+      if (!Number.isFinite(bajo) || !Number.isFinite(alto) || bajo < 0 || alto > 100 || bajo >= alto) {
+        toast('Umbrales inválidos: deben estar entre 0 y 100 y el bajo debe ser menor que el alto', 'error');
+        return;
+      }
+      if (!mqttOk || !mqtt) {
+        toast('Sin conexión MQTT — no se pueden enviar los umbrales', 'error');
+        return;
+      }
+      sendCmd({ umbral_bajo: bajo, umbral_alto: alto });
+      toast('Umbrales enviados al ESP32', 'success');
     }
 
     function sendCmd(payload) {
@@ -2060,7 +2111,7 @@ allow_anonymous true</div>
         const modoClass  = r.modo_operacion === 'AUTO' ? 'badge-auto' : 'badge-manual';
         return `<tr>
           <td>${r.id}</td>
-          <td>${r.fecha_hora || '—'}</td>
+          <td>${r.fecha_hora ? new Date(r.fecha_hora).toLocaleString('es-AR') : '—'}</td>
           <td>${Number(r.porcentaje).toFixed(1)}</td>
           <td>${Number(r.cota_cm).toFixed(1)}</td>
           <td>${Number(r.distancia_cm).toFixed(1)}</td>
@@ -2125,10 +2176,6 @@ allow_anonymous true</div>
           if (saved.apiBase)      $('cfgApiBase').value      = saved.apiBase;
           if (saved.refreshInterval) $('cfgRefreshInterval').value = saved.refreshInterval;
           if (saved.historyLimit) $('cfgHistoryLimit').value = saved.historyLimit;
-          if (saved.umbralBajo)   $('cfgUmbralBajo').value   = saved.umbralBajo;
-          if (saved.umbralAlto)   $('cfgUmbralAlto').value   = saved.umbralAlto;
-          if (saved.distVacio)    $('cfgDistVacio').value    = saved.distVacio;
-          if (saved.distLleno)    $('cfgDistLleno').value    = saved.distLleno;
           if (saved.maxLog)       $('cfgMaxLog').value       = saved.maxLog;
           if (saved.decimals !== undefined) $('cfgDecimals').value = saved.decimals;
         }
@@ -2144,10 +2191,6 @@ allow_anonymous true</div>
         apiBase:      $('cfgApiBase').value,
         refreshInterval: parseInt($('cfgRefreshInterval').value) || 30,
         historyLimit: parseInt($('cfgHistoryLimit').value) || 100,
-        umbralBajo:   parseInt($('cfgUmbralBajo').value) || 20,
-        umbralAlto:   parseInt($('cfgUmbralAlto').value) || 85,
-        distVacio:    parseInt($('cfgDistVacio').value) || 200,
-        distLleno:    parseInt($('cfgDistLleno').value) || 25,
         maxLog:       parseInt($('cfgMaxLog').value) || 80,
         decimals:     parseInt($('cfgDecimals').value) || 1,
       };
@@ -2254,6 +2297,7 @@ allow_anonymous true</div>
       // Configuración
       loadConfig();
       $('cfgSaveBtn').addEventListener('click', saveConfig);
+      $('cfgUmbralesBtn').addEventListener('click', enviarUmbrales);
       $('cfgResetBtn').addEventListener('click', resetConfig);
 
       // Ayuda
